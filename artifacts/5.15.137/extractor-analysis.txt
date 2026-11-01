@@ -1,0 +1,22 @@
+warning: xbl_config FDT parse failed: xbl_config contains no unique NOMAP/Kernel memory map; trying the uefi memory map
+warning: uefi memory-map parse failed: uefi contains no Kernel memory-map entry; proceeding with boot-only analysis
+info: kallsyms layout pre-6.4 recovered (187976 symbols)
+info: (CVE-2026-43499 primitive present (remove_waiter@0x1827508 still uses current)
+warning: 5.15.137-g7cb3e06b062c-dirty is unverified; no family-derived geometry will be emitted
+== GhostLock kernel analysis ==
+release                 5.15.137-g7cb3e06b062c-dirty
+kernel_major            5.15
+kernel_family           unverified (no family layout will be emitted)
+kernel_phys_load        unset (no xbl_config.img; pass --phys or let the runtime derive it)
+rt_mutex_waiter         lock=0x38 pi_tree_entry=0x18 task=0x30 tree_entry=0x0 wake_state=0x40 ww_ctx=0x50 size=0x58
+mm_struct size          0x3e0
+primitive               remove_waiter@0x1827508 unpatched
+pselect chain           derivation failed: pselect/futex overlap is not a non-negative qword: -248
+path multicast_waiter   available (ip_mc_msfadd=absent ip_mc_source@0xffffffc00952eebc)
+path select_stack       available (core_sys_select@0xffffffc0086166b4 futex_wait@0xffffffc0082c132c)
+path tcp_zerocopy       available (tcp_zerocopy_receive@0xffffffc0094d8eec)
+---------------------------------
+suggested route         multicast_waiter (medium)
+reasons                 - 5.x kernel with the multicast path present
+reasons                 - pselect route not derivable on this layout
+note                    a device gate with the fixed CPU pair still decides whether a route is supported

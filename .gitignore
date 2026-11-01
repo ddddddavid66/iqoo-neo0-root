@@ -1,7 +1,14 @@
 # 大体积产物、第三方工具与运行时数据不入库
 
-# 内核/固件原始产物（309MB+7.4GB）
-artifacts/
+# 内核/固件原始产物（309MB+7.4GB）；只保留 5.15.137 的推导记录文本
+artifacts/*
+!artifacts/5.15.137/
+artifacts/5.15.137/*
+!artifacts/5.15.137/README.md
+!artifacts/5.15.137/SHA256SUMS
+!artifacts/5.15.137/extractor-analysis.txt
+!artifacts/5.15.137/extractor-conf.conf
+!artifacts/5.15.137/extractor.json
 ota/
 image/
 offsets/

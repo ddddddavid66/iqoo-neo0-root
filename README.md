@@ -78,6 +78,7 @@ profile 里写 `__tracepoint_sys_exit + 0x0`，payload 自己加 `.funcs` 的 `+
 
 ```
 .
+├── NOTICE.md                   # 上游来源与许可说明（必读）
 ├── iqoo-neo9-ghostlock-pc/     # GhostLock 移植（Go）
 │   ├── cmd/ghostlock/          # CLI
 │   ├── internal/
@@ -101,7 +102,9 @@ profile 里写 `__tracepoint_sys_exit + 0x0`，payload 自己加 `.funcs` 的 `+
     └── PERSISTENCE-STATUS.md
 ```
 
-未入库（体积过大或含隐私）：`artifacts/`（内核镜像与 BTF，309MB）、`ota/`（7.4GB OTA）、`build/`、`_research/`、`_src/`、`autoroot/state/`（运行日志与事件）。
+未入库（体积过大或含隐私）：`artifacts/` 下的内核镜像与 BTF（309MB，仅保留 `artifacts/5.15.137/` 的推导记录文本）、`ota/`（7.4GB OTA 全量包）、`build/`、`_research/`、`_src/`、`autoroot/state/`（运行日志与事件）。
+
+上游来源、许可与再分发限制见 [NOTICE.md](NOTICE.md)。
 
 ---
 
