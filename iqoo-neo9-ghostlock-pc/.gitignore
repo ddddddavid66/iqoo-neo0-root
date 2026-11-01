@@ -1,0 +1,4 @@
+bin/
+*.bin
+analysis/
+docs/DEVNOTES.md

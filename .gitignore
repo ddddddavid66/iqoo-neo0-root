@@ -1,0 +1,58 @@
+# 大体积产物、第三方工具与运行时数据不入库
+
+# 内核/固件原始产物（309MB+7.4GB）
+artifacts/
+ota/
+image/
+offsets/
+intel/
+ksu/
+exploit/
+run/
+gpu-root/
+build/
+publish/
+_research/
+_src/
+
+# 与本项目无关的宿主机工具（zig/go 工具链、DSH 会话脚本）
+tools/*
+!tools/port/
+!tools/README.md
+
+# 编译产物
+**/bin/
+*.exe
+*.dll
+*.so
+*.ko
+*.o
+*.a
+*.zip
+
+# 内核/固件镜像与中间产物
+*.img
+*.bin
+*.elf
+*.raw
+*.mbn
+*.zst
+*.zstd
+
+# 运行状态与日志
+autoroot/state/
+*.log
+*.jsonl
+session-*
+*.transcript.md
+
+# Python
+__pycache__/
+*.pyc
+
+# 编辑器/系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
