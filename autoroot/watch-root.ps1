@@ -29,6 +29,12 @@ param(
     [int]$FailBackoffSec = 300,
     [int]$MaxBackoffSec = 3600,
     [switch]$RebootIfLate,
+    # 无人值守时默认主动重启抢窗口：设备开机久了 uptime 早过窗口，光等不会自己回到窗口内。
+    [switch]$NoReboot,
+    # >0 时到点自动退出（小时），方便过夜跑完就停。
+    [int]$MaxHours = 0,
+    # 每 N 轮打一次心跳，确认监督器还活着、设备还在。
+    [int]$HeartbeatEvery = 15,
     [switch]$Once,
     [string]$Exe,
     [string]$Adb = "adb",
@@ -99,11 +105,20 @@ $PID | Set-Content -LiteralPath $lockFile -Encoding UTF8
 
 $backoff = $FailBackoffSec
 $rerooted = 0
-Write-Log ("=== watch 启动：serial={0} poll={1}s once={2}" -f $Serial, $PollSec, [bool]$Once)
+$polls = 0
+$startedAt = Get-Date
+# 默认驱动模式：主动把设备推进 uptime 窗口。-NoReboot 关掉。
+$drive = -not $NoReboot
+Write-Log ("=== watch 启动：serial={0} poll={1}s once={2} drive={3} maxHours={4}" -f $Serial, $PollSec, [bool]$Once, $drive, $MaxHours)
 if ($WirelessAddr) { & $Adb connect $WirelessAddr 2>&1 | Out-Null }
 
 try {
     while ($true) {
+        if ($MaxHours -gt 0 -and ((Get-Date) - $startedAt).TotalHours -ge $MaxHours) {
+            Write-Log ("到点退出：已运行 {0:N1} 小时" -f ((Get-Date) - $startedAt).TotalHours)
+            Write-Event @{ event = "watch-exit"; reason = "max-hours"; rerooted = $rerooted }
+            exit 0
+        }
         # 必须带 -s：USB 与 WiFi 两个 transport 同时在线时，不带序列号的
         # `adb get-state` 直接报 "more than one device/emulator"。
         $state = (Invoke-Adb @("get-state") 10)
@@ -119,6 +134,12 @@ try {
 
         if (Test-KsuAlive) {
             $backoff = $FailBackoffSec
+            $polls++
+            if ($HeartbeatEvery -gt 0 -and ($polls % $HeartbeatEvery) -eq 0) {
+                $up = (Invoke-Adb @("shell", "cat /proc/uptime") 10)
+                if ($up) { $up = ($up.Trim() -split "\s+")[0] }
+                Write-Log ("心跳：root 在线 uptime={0}s 已运行 {1:N0} 分钟，补打 {2} 次" -f $up, ((Get-Date) - $startedAt).TotalMinutes, $rerooted)
+            }
             if ($Once) { Write-Log "root 在线"; exit 0 }
             Start-Sleep -Seconds $PollSec
             continue
@@ -130,7 +151,7 @@ try {
         $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $reroot)
         if ($Exe) { $argList += @("-Exe", $Exe) }
         if ($WirelessAddr) { $argList += @("-WirelessAddr", $WirelessAddr) }
-        if ($RebootIfLate) { $argList += "-RebootIfLate" }
+        if ($drive) { $argList += "-RebootIfLate" }
         if ($StateDir) { $argList += @("-StateDir", $StateDir) }
         & powershell.exe @argList | Out-Host
         $code = $LASTEXITCODE
@@ -144,6 +165,10 @@ try {
         if ($code -eq 0) {
             $backoff = $FailBackoffSec
             Start-Sleep -Seconds $PollSec
+        } elseif ($code -eq 6) {
+            # root 拿到后又丢了（大概率内核崩了在重启）：短退避，等它起来再说。
+            Write-Log "补打报 root-unstable，60s 后重试"
+            Start-Sleep -Seconds 60
         } else {
             # 设备多半在 panic 重启，退避一下再上，别把它打进无限重启。
             Write-Log ("补打没成功，退避 {0}s" -f $backoff)

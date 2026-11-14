@@ -7,12 +7,16 @@
 
 | 文件 | 作用 |
 |---|---|
-| `auto-reroot.ps1` | 状态机：等设备 → 幂等查 root → 等窗口 → 发射 → 用 `su -c id` 事实判定 → 记事件/刹车 |
-| `install-autostart.ps1` | 注册/卸载自启（默认写「启动」文件夹，不需要管理员；`-Method Task` 才用计划任务） |
+| `auto-reroot.ps1` | 状态机：等设备 → 幂等查 root → 等窗口 → 发射 → 用 `su -c id` 事实判定 → 静置复查 → 记事件/刹车 |
+| `watch-root.ps1` | **常驻监督**：每 20s 用 `grep -c kernelsu /proc/modules` 判活（不 spawn `su`），掉则调 `auto-reroot.ps1`，失败指数退避 |
+| `install-autostart.ps1` | 注册/卸载自启（默认写「启动」文件夹，指向 `watch-root.ps1`；`-Method Task` 才用计划任务） |
+| `device/` | **设备侧自启**（不依赖 PC）：Termux:Boot 钩子 + adb key 授权脚本，见 `device/README.md` |
 | `state/auto-reroot-YYYYMM.log` | 人读日志 |
-| `state/events.jsonl` | 机器读事件（`already-root` / `root-ok` / `root-fail` / `unauthorized` / `window-missed`） |
+| `state/watch-YYYYMM.log` | 常驻监督器日志（含心跳） |
+| `state/events.jsonl` | 机器读事件（`already-root` / `root-ok` / `root-fail` / `root-unstable` / `window-missed` / `watch-*`） |
 | `state/state.json` | 失败计数与冷却期 |
 | `state/fire-*.log` | 每次发射时 `ghostlock run` 的完整输出 |
+| `state/crash/` | 拿到 root 那一刻抓的 pstore/dmesg（本机 pstore 无 record 区，通常为空） |
 
 ## 用法
 
@@ -26,14 +30,24 @@
 # 开机太晚、已过窗口时主动重启去抢下一次
 .\auto-reroot.ps1 -RebootIfLate
 
+# 常驻监督（默认就会主动重启抢窗口；-NoReboot 关掉这个行为）
+.\watch-root.ps1
+.\watch-root.ps1 -Wireless          # 走 WiFi adb（10.206.33.5:5555）
+.\watch-root.ps1 -MaxHours 8        # 跑 8 小时自动停
+.\watch-root.ps1 -Once              # 只判活 + 必要的补打一次
+
 # 注册自启 / 卸载
 .\install-autostart.ps1
 .\install-autostart.ps1 -Remove
 ```
 
 常用参数：`-Window 90`（窗口上沿）、`-MaxRounds 4`（每次开机最多几轮，每轮由 ghostlock
-自己等下一次 panic 重启）、`-PerBoot 2`、`-MaxConsecutiveFailures 5`、
-`-CooldownHours 24`、`-Exe <path>`。
+自己等下一次 panic 重启）、`-PerBoot 2`、`-SettleSec 90`（成功后静置复查秒数）、
+`-MaxConsecutiveFailures 5`、`-CooldownHours 24`、`-Exe <path>`。
+
+`watch-root.ps1` 另有：`-PollSec 20`（判活间隔）、`-FailBackoffSec 300` /
+`-MaxBackoffSec 3600`（失败退避）、`-HeartbeatEvery 15`（每 15 次判活打一条心跳）、
+`-MaxHours 0`（0 = 不限时）、`-NoReboot`。
 
 ## 实测时序（2026-11-01，6 次重启）
 
