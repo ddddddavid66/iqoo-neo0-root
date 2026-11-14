@@ -96,6 +96,14 @@ func joinArgs(args []string) (serial string, rest []string) {
 }
 
 func main() {
+	// MOCK_LOG 设了就逐条记调用（毫秒时间戳 + 参数），排查「哪条命令卡住」用。
+	if lg := os.Getenv("MOCK_LOG"); lg != "" {
+		f, err := os.OpenFile(lg, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err == nil {
+			fmt.Fprintf(f, "%d %s\n", time.Now().UnixMilli(), strings.Join(os.Args[1:], " "))
+			f.Close()
+		}
+	}
 	self := strings.ToLower(filepath.Base(os.Args[0]))
 	if strings.Contains(self, "ghostlock") {
 		payload()
@@ -175,6 +183,50 @@ func shell(cmd string, s state, reachable bool) {
 		}
 	}
 	switch {
+	// fire() 通过 `setsid sh glrun.sh` 起载荷：模拟「载荷跑起来就成功」
+	case strings.Contains(cmd, "glrun.sh") || strings.Contains(cmd, "setsid"):
+		s.root = true
+		writeState(s)
+		fmt.Println("go")
+	// 管理器的探测要能立刻命中，否则 findManager 会对十几个包名各重试 5 次，
+	// 每次 500ms —— 光探测就 20 秒，把测试拖成天。
+	case strings.Contains(cmd, ".gl_ksu_pkg"):
+		fmt.Println("com.sukisu.ultra")
+	case strings.Contains(cmd, "pm list packages"):
+		if strings.Contains(cmd, "com.sukisu.ultra") {
+			fmt.Println("package:com.sukisu.ultra")
+		}
+	case strings.Contains(cmd, "pm path"):
+		if strings.Contains(cmd, "com.sukisu.ultra") {
+			fmt.Println("package:/data/app/com.sukisu.ultra-1/base.apk")
+		}
+	case strings.Contains(cmd, "lib/arm64/libksud.so"):
+		fmt.Println("/data/app/com.sukisu.ultra-1/lib/arm64/libksud.so")
+	case strings.Contains(cmd, "ls -S"):
+		fmt.Println("/data/app/com.sukisu.ultra-1/lib/arm64/libksud.so")
+	case strings.Contains(cmd, "getprop ro.serialno"):
+		fmt.Println("MOCKSERIAL")
+	case strings.Contains(cmd, "getprop ro.product.model"):
+		fmt.Println("V2338A")
+	case strings.Contains(cmd, "getprop ro.product.device"):
+		fmt.Println("PD2338")
+	case strings.Contains(cmd, "getprop ro.build.version.release"):
+		fmt.Println("14")
+	case strings.Contains(cmd, "getprop ro.build.version.sdk"):
+		fmt.Println("34")
+	case strings.Contains(cmd, "getenforce"):
+		fmt.Println("Enforcing")
+	case strings.TrimSpace(cmd) == "id -u":
+		fmt.Println("2000")
+	case strings.Contains(cmd, "/proc/self/status"):
+		fmt.Println("Name:\tsh")
+		fmt.Println("Seccomp:\t0")
+	// fire() 判胜靠读 ksu 日志：模拟载荷成功后让它出现成功标记
+	case strings.Contains(cmd, "ksu-") && strings.Contains(cmd, "cat "):
+		if s.root {
+			fmt.Println("=== run mock uptime=30")
+			fmt.Println("[+] KernelSU module loaded")
+		}
 	case strings.Contains(cmd, "echo up"):
 		if !s.present {
 			os.Exit(1)
