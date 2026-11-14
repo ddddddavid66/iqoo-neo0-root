@@ -138,6 +138,66 @@ Invoke-Case "A-hit" { Set-Mock $true $false 30 } @() 0 "root-ok" -minFireUptime 
 Invoke-Case "B-reboot-late" { Set-Mock $true $false 6000 } @("-RebootIfLate") 0 "root-ok" -minFireUptime 25
 Invoke-Case "C-absent" { Set-Mock $false $false 0 } @() -1 "" -timeoutSec 30
 
+# ---------------------------------------------------------------- D：监督 + 掉线补打
+# 这是「自动 root」的核心行为：root 在线时不动，掉线后自己补回来。
+Write-Host ""
+Write-Host "===== 场景 D-supervise ====="
+Set-Mock $true $true 30
+$dDir = Join-Path $StateDir "D-supervise"
+Remove-Item -Recurse -Force $dDir -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $dDir | Out-Null
+
+$watch = Join-Path $hereDir "watch-root.ps1"
+$wArgList = @(
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $watch,
+    "-Serial", "MOCKSERIAL", "-Adb", $mockAdb, "-Exe", $mockExe,
+    "-StateDir", $dDir, "-PollSec", "2", "-FailBackoffSec", "5",
+    "-MaxBackoffSec", "10", "-HeartbeatEvery", "2", "-NoReboot"
+)
+$wPsi = New-Object System.Diagnostics.ProcessStartInfo
+$wPsi.FileName = "powershell.exe"
+$wPsi.Arguments = (($wArgList | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join " ")
+$wPsi.RedirectStandardOutput = $true
+$wPsi.RedirectStandardError = $true
+$wPsi.UseShellExecute = $false
+$wPsi.CreateNoWindow = $true
+$wProc = [System.Diagnostics.Process]::Start($wPsi)
+$wOut = $wProc.StandardOutput.ReadToEndAsync()
+
+Start-Sleep -Seconds 7
+$before = @(Get-Content -LiteralPath (Join-Path $dDir "events.jsonl") -ErrorAction SilentlyContinue)
+Write-Host ("   启动后事件数={0}（此时 root 在线，不该补打）" -f $before.Count)
+
+Write-Host "   把 root 掉线…"
+Set-Mock $true $false 30
+Start-Sleep -Seconds 25
+
+try { $wProc.Kill() } catch { }
+Start-Sleep -Milliseconds 500
+$wLog = $wOut.Result
+Set-Content -LiteralPath (Join-Path $dDir "watch-stdout.txt") -Value $wLog -Encoding UTF8
+Write-Host (($wLog -split "`r?`n" | Where-Object { $_ } | Select-Object -Last 8) -join "`n")
+
+$dEvents = ""
+$dEventsPath = Join-Path $dDir "events.jsonl"
+if (Test-Path $dEventsPath) { $dEvents = Get-Content -LiteralPath $dEventsPath -Raw }
+$after = Get-Content -LiteralPath (Join-Path $mockDir "mock-state.txt") -Raw
+
+$dOk1 = $dEvents -match "watch-reroot-start"
+$dOk2 = $dEvents -match "root-ok"
+$dOk3 = $after -match "root=1"
+$dPass = $dOk1 -and $dOk2 -and $dOk3
+$results += [pscustomobject]@{
+    Case = "D-supervise"
+    Exit = "-"
+    WantExit = "-"
+    Event = "watch-reroot-start + root-ok"
+    FireUptime = ""
+    Pass = $dPass
+}
+Write-Host ("   触发补打={0} 补打成功={1} root 恢复={2}" -f $dOk1, $dOk2, $dOk3)
+Write-Host ("-> {0}" -f $(if ($dPass) { "PASS" } else { "FAIL" }))
+
 Write-Host ""
 Write-Host "===== 汇总 ====="
 $results | Format-Table -AutoSize | Out-String | Write-Host

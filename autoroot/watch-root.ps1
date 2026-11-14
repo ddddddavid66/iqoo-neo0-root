@@ -150,6 +150,10 @@ try {
         $t = Get-Date
         $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $reroot)
         if ($Exe) { $argList += @("-Exe", $Exe) }
+        # -Adb / -Serial 必须透传：否则子进程会退回默认序列号 + PATH 里的真 adb
+        # （自测用假 adb 时表现为子进程报「设备状态：absent」）。
+        if ($Adb -and $Adb -ne "adb") { $argList += @("-Adb", $Adb) }
+        if ($Serial) { $argList += @("-Serial", $Serial) }
         if ($WirelessAddr) { $argList += @("-WirelessAddr", $WirelessAddr) }
         if ($drive) { $argList += "-RebootIfLate" }
         if ($StateDir) { $argList += @("-StateDir", $StateDir) }
