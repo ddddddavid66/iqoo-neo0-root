@@ -70,7 +70,10 @@ Say "使用设备：$use"
 
 # ---------------------------------------------------------------- 2. 体检
 Say "ghostlock doctor …"
-$doc = (& $exe doctor --serial $use 2>&1 | Out-String)
+# -Adb 非默认时必须传给 doctor，否则它会去 PATH 找真 adb（自测用假 adb 就跑偏）。
+$doctorArgs = @("doctor", "--serial", $use)
+if ($Adb -and $Adb -ne "adb") { $doctorArgs += @("--adb", $Adb) }
+$doc = (& $exe @doctorArgs 2>&1 | Out-String)
 Write-Host $doc.Trim()
 
 if ($doc -match "no bundled profile|不可用|not found|uname") {

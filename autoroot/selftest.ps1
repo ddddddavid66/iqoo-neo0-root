@@ -263,6 +263,47 @@ $results += [pscustomobject]@{
 Write-Host ("   重启后补回={0} root 在位={1} 发射 uptime={2}s（≥25）" -f $eOk1, $eOk2, $firedUp)
 Write-Host ("-> {0}" -f $(if ($ePass) { "PASS" } else { "FAIL" }))
 
+# ---------------------------------------------------------------- F：上机入口 go.ps1 体检
+# 明天真正要敲的就是这条命令：找设备 → doctor → （这里只体检）。
+Write-Host ""
+Write-Host "===== 场景 F-go-checkonly ====="
+Set-Mock $true $false 30
+$goPs1 = Join-Path $hereDir "go.ps1"
+$fOk = $false
+$fDetail = ""
+if (-not (Test-Path $goPs1)) {
+    $fDetail = "go.ps1 不存在"
+} else {
+    $fPsi = New-Object System.Diagnostics.ProcessStartInfo
+    $fPsi.FileName = "powershell.exe"
+    $fArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $goPs1,
+               "-CheckOnly", "-Serial", "MOCKSERIAL", "-Adb", $mockAdb)
+    $fPsi.Arguments = (($fArgs | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join " ")
+    $fPsi.RedirectStandardOutput = $true
+    $fPsi.RedirectStandardError = $true
+    $fPsi.UseShellExecute = $false
+    $fPsi.CreateNoWindow = $true
+    $fp = [System.Diagnostics.Process]::Start($fPsi)
+    $fOut = $fp.StandardOutput.ReadToEnd()
+    $fErr = $fp.StandardError.ReadToEnd()
+    $fp.WaitForExit(90000) | Out-Null
+    $fCode = $fp.ExitCode
+    Write-Host (($fOut -split "`r?`n" | Where-Object { $_ } | Select-Object -Last 6) -join "`n")
+    # 体检通过 = 退出码 0 且真的打印出了 profile 段
+    $fOk = ($fCode -eq 0) -and ($fOut -match "profile\s*:") -and ($fOut -match "5\.15\.137")
+    $fDetail = "exit=$fCode"
+    if ($fErr) { Write-Host ("stderr: " + $fErr.Trim()) }
+}
+$results += [pscustomobject]@{
+    Case = "F-go-checkonly"
+    Exit = $fDetail
+    WantExit = "0 + profile"
+    Event = "go.ps1 体检"
+    FireUptime = ""
+    Pass = $fOk
+}
+Write-Host ("-> {0}" -f $(if ($fOk) { "PASS" } else { "FAIL" }))
+
 Write-Host ""
 Write-Host "===== 汇总 ====="
 $results | Format-Table -AutoSize | Out-String | Write-Host

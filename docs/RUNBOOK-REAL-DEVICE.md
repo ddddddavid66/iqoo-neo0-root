@@ -26,13 +26,14 @@ cd ..\..
 powershell -File autoroot\selftest.ps1
 ```
 
-五个场景：`A-hit`（窗口内命中）、`B-reboot-late`（过窗口→主动重启→命中，且断言发射
+六个场景：`A-hit`（窗口内命中）、`B-reboot-late`（过窗口→主动重启→命中，且断言发射
 uptime ≥ 25s）、`C-absent`（无设备时不发射）、`D-supervise`（root 在线时不动 → 掉线 →
 自动补回）、`E-panic-after-root`（命中后内核崩、设备重启：root 归零且 uptime 归 0 →
-必须等到窗口下沿再补回来）。五绿再上真机。
+必须等到窗口下沿再补回来）、`F-go-checkonly`（明天真正要敲的 `go.ps1 -CheckOnly`
+走一遍，断言 doctor 打出 profile 段）。六绿再上真机。
 
 `D` 和 `E` 是「自动 root」真正要证明的部分：监督器能自己发现 root 没了，并且能在
-内核崩溃重启这种最恶劣的情况下把 root 补回来。
+内核崩溃重启这种最恶劣的情况下把 root 补回来。`F` 保证「上机入口本身」也是通的。
 
 ## 1. 前置检查（约 30 秒）
 ```powershell
