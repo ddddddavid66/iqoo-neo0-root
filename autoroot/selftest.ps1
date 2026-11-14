@@ -1,0 +1,149 @@
+﻿<#
+.SYNOPSIS
+  无真机自测：用假 adb 驱动 auto-reroot.ps1 的状态机。
+
+.DESCRIPTION
+  真机没插上时，唯一能验证守护逻辑的办法是把它挂到假的 adb 上：
+    tools/mockadb/mockadb.exe       假 adb（devices/get-state/shell/reboot/connect）
+    tools/mockadb/mockghostlock.exe 假载荷（被 fire 就把 root 标成可用）
+
+  场景：
+    A 正常命中     窗口内、未 root           → 发射 → 事实判定 → root-ok
+    B 窗口外抢跑   uptime 已 100 分钟 + -RebootIfLate → 先重启再发射 → root-ok
+    C 没有设备     不发射，只在等            → 超时被掐断，且无 root-ok
+
+  跑法：
+    cd tools/mockadb ; go build -o mockadb.exe . ; go build -o mockghostlock.exe .
+    powershell -File autoroot/selftest.ps1
+#>
+[CmdletBinding()]
+param(
+    [string]$StateDir = "",
+    [int]$SettleSec = 2
+)
+
+# $PSScriptRoot 在 param 默认值里不一定可用（-File 调用时为空），这里统一在脚本体里算。
+$hereDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $StateDir) { $StateDir = Join-Path $hereDir "state\selftest" }
+
+$ErrorActionPreference = "Continue"
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+} catch { }
+
+$mockDir = Join-Path (Split-Path -Parent $hereDir) "tools\mockadb"
+$mockAdb = Join-Path $mockDir "mockadb.exe"
+$mockExe = Join-Path $mockDir "mockghostlock.exe"
+$reroot  = Join-Path $hereDir "auto-reroot.ps1"
+
+foreach ($p in @($mockAdb, $mockExe, $reroot)) {
+    if (-not (Test-Path $p)) { Write-Host "缺文件: $p"; exit 10 }
+}
+
+New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+$results = @()
+
+function Set-Mock {
+    param([bool]$present, [bool]$rooted, [int]$ageSec)
+    $boot = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $ageSec
+    $p = if ($present) { 1 } else { 0 }
+    $r = if ($rooted) { 1 } else { 0 }
+    "present=$p root=$r boot_unix=$boot" |
+        Set-Content -LiteralPath (Join-Path $mockDir "mock-state.txt") -Encoding ASCII
+}
+
+function Invoke-Case {
+    param(
+        [string]$name,
+        [scriptblock]$setup,
+        [string[]]$extra,
+        [int]$expectExit,        # -1 表示「不应该在超时前退出」
+        [string]$expectEvent,    # 空 = 不应该出现任何 root-ok
+        [int]$minFireUptime = 0, # >0 时要求「进入窗口」那一行的 uptime 不低于它
+        [int]$timeoutSec = 180
+    )
+    Write-Host ""
+    Write-Host ("===== 场景 {0} =====" -f $name)
+    & $setup
+
+    $caseDir = Join-Path $StateDir $name
+    Remove-Item -Recurse -Force $caseDir -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $caseDir | Out-Null
+
+    $argList = @(
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $reroot,
+        "-Serial", "MOCKSERIAL", "-Adb", $mockAdb, "-Exe", $mockExe,
+        "-StateDir", $caseDir, "-SettleSec", "$SettleSec",
+        "-MaxRounds", "1", "-PerBoot", "1"
+    ) + $extra
+
+    # Start-Process -PassThru 在重定向时 ExitCode 会是 $null，直接驱动 Process 更可靠。
+    $outFile = Join-Path $caseDir "stdout.txt"
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "powershell.exe"
+    $psi.Arguments = (($argList | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join " ")
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $outTask = $proc.StandardOutput.ReadToEndAsync()
+    $errTask = $proc.StandardError.ReadToEndAsync()
+    $exited = $proc.WaitForExit($timeoutSec * 1000)
+    if (-not $exited) { try { $proc.Kill() } catch { } }
+    $log = $outTask.Result
+    $errText = $errTask.Result
+    $code = if ($exited) { $proc.ExitCode } else { -1 }
+    Set-Content -LiteralPath $outFile -Value $log -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $caseDir "stderr.txt") -Value $errText -Encoding UTF8
+    Write-Host ("   [debug] exited={0} code={1}" -f $exited, $code)
+
+    $log = ""
+    if (Test-Path $outFile) { $log = Get-Content -LiteralPath $outFile -Raw -Encoding UTF8 }
+    Write-Host (($log -split "`r?`n" | Select-Object -Last 12) -join "`n")
+
+    $events = Join-Path $caseDir "events.jsonl"
+    $evText = if (Test-Path $events) { Get-Content -LiteralPath $events -Raw } else { "" }
+
+    $exitOk  = if ($expectExit -eq -1) { -not $exited } else { $exited -and ($code -eq $expectExit) }
+    $eventOk = if ($expectEvent -eq "") { $evText -notmatch "root-ok" } else { $evText -match [regex]::Escape($expectEvent) }
+
+    # 发射时机必须落在窗口里：早于下沿的发射等于白送一次 panic 重启。
+    $upOk = $true
+    $fireUp = ""
+    if ($minFireUptime -gt 0) {
+        if ($log -match "进入窗口：uptime=(\d+)s") {
+            $fireUp = [int]$matches[1]
+            $upOk = $fireUp -ge $minFireUptime
+        } else {
+            $upOk = $false
+        }
+        Write-Host ("   [debug] 发射 uptime={0}s（要求 ≥{1}s）" -f $fireUp, $minFireUptime)
+    }
+
+    $pass = $exitOk -and $eventOk -and $upOk
+    $results += [pscustomobject]@{
+        Case = $name
+        Exit = $code
+        WantExit = if ($expectExit -eq -1) { "不退出" } else { $expectExit }
+        Event = if ($expectEvent -eq "") { "无 root-ok" } else { $expectEvent }
+        FireUptime = $fireUp
+        Pass = $pass
+    }
+    Write-Host ("-> {0}" -f $(if ($pass) { "PASS" } else { "FAIL" }))
+}
+
+Invoke-Case "A-hit" { Set-Mock $true $false 30 } @() 0 "root-ok" -minFireUptime 25
+Invoke-Case "B-reboot-late" { Set-Mock $true $false 6000 } @("-RebootIfLate") 0 "root-ok" -minFireUptime 25
+Invoke-Case "C-absent" { Set-Mock $false $false 0 } @() -1 "" -timeoutSec 30
+
+Write-Host ""
+Write-Host "===== 汇总 ====="
+$results | Format-Table -AutoSize | Out-String | Write-Host
+Set-Mock $true $false 30 | Out-Null
+
+$failed = @($results | Where-Object { -not $_.Pass }).Count
+if ($failed -gt 0) { Write-Host ("有 {0} 个场景没过" -f $failed); exit 1 }
+Write-Host "全部通过"
+exit 0

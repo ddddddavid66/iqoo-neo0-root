@@ -32,6 +32,8 @@ param(
     [int]$MaxConsecutiveFailures = 5,
     [int]$CooldownHours = 24,
     [int]$SettleSec = 90,
+    # 窗口下沿：实测命中集中在 uptime 31–71s，早于 25s 发出去基本是白拿一次 panic 重启。
+    [int]$MinUptime = 25,
     [string]$StateDir
 )
 
@@ -276,7 +278,10 @@ try {
             if (-not (Wait-Device 180)) { Write-Event @{ event = "device-missing"; stage = "window" }; exit 2 }
             continue
         }
-        if ($up -ge 5 -and $up -le ($Window - 5)) { break }
+        if ($up -ge $MinUptime -and $up -le ($Window - 5)) { break }
+        if ($up -lt $MinUptime) {
+            Write-Log ("uptime={0:N0}s 未到下沿 {1}s，再等" -f $up, $MinUptime)
+        }
         if ($up -gt ($Window - 5)) {
             if ($RebootIfLate) {
                 Write-Log ("已过窗口（uptime={0:N0}s），主动重启抢下一次" -f $up)

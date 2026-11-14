@@ -56,6 +56,8 @@ autoroot/state/
 *.jsonl
 session-*
 *.transcript.md
+# 假 adb 的运行时状态
+tools/mockadb/mock-state.txt
 
 # Python
 __pycache__/

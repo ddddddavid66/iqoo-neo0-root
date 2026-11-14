@@ -14,8 +14,22 @@
 2. 静置 90 秒后仍然 `su -c id` 可用（`auto-reroot.ps1 -SettleSec 90` 会自检，事件记为 `root-ok`）
 3. `adb shell grep -c kernelsu /proc/modules` → `1`
 
-## 1. 前置检查（约 30 秒）
+## 0.5 上机前先跑离线自测（不需要手机，约 1 分钟）
 
+守护逻辑先在假 adb 上验一遍，避免明天把时间浪费在状态机上：
+
+```powershell
+cd tools\mockadb
+go build -o mockadb.exe .
+go build -o mockghostlock.exe .
+cd ..\..
+powershell -File autoroot\selftest.ps1
+```
+
+三个场景：`A-hit`（窗口内命中）、`B-reboot-late`（过窗口→主动重启→命中，且断言发射
+uptime ≥ 25s）、`C-absent`（无设备时不发射）。全绿再上真机。
+
+## 1. 前置检查（约 30 秒）
 ```powershell
 adb devices -l
 # 期望：10CE5P1A4G001PA  device
