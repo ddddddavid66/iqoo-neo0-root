@@ -205,7 +205,7 @@ go build -o mockadb.exe .
 go build -o mockghostlock.exe .
 cd ..\..
 
-powershell -File autoroot\selftest.ps1      # 六个场景：命中 / 抢窗口 / 无设备 / 监督补打 / 崩溃恢复 / 上机入口
+powershell -File autoroot\selftest.ps1      # 七个场景：命中 / 抢窗口 / 无设备 / 监督补打 / 崩溃恢复 / 上机入口 / 假健康
 powershell -File autoroot\soak.ps1          # 反复掉线（交替「root 消失」与「panic 重启」）
 cd iqoo-neo9-ghostlock-pc
 go test ./internal/run/ -run TestLoop -v   # Go 侧重试机器（probe→stage→fire→判胜）

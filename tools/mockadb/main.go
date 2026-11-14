@@ -254,7 +254,8 @@ func shell(cmd string, s state, reachable bool) {
 			os.Exit(1)
 		}
 	case strings.Contains(cmd, "su -c id"):
-		if s.root {
+		// MOCK_SU_BROKEN=1 模拟「kernelsu 加载了但 su 用不了」（SELinux 拦、ksud 没接管）
+		if s.root && os.Getenv("MOCK_SU_BROKEN") == "" {
 			fmt.Println("uid=0(root) gid=0(root) groups=0(root) context=u:r:ksu:s0")
 		} else {
 			fmt.Fprintln(os.Stderr, "/system/bin/sh: su: inaccessible or not found")

@@ -90,6 +90,13 @@ function Invoke-Adb([string[]]$argv, [int]$timeoutSec = 15) {
     return ($proc.StandardOutput.ReadToEnd() + $proc.StandardError.ReadToEnd())
 }
 
+# su 能不能用（事实核对）。只在心跳时调用：高频 spawn su 会扰动设备。
+function Test-SuUsable {
+    $out = Invoke-Adb @("shell", "su -c id 2>/dev/null") 15
+    if ($null -eq $out) { return $false }
+    return ($out -match "uid=0")
+}
+
 function Test-KsuAlive {
     $out = Invoke-Adb @("shell", "grep -c kernelsu /proc/modules 2>/dev/null") 10
     if ($null -eq $out) { return $false }
@@ -178,14 +185,27 @@ try {
         if (Test-KsuAlive) {
             $backoff = $FailBackoffSec
             $polls++
+            # 心跳顺便做一次「能不能用」的核对：kernelsu 在 /proc/modules 只说明
+            # late-load 加载了，不代表 su 能用（SELinux 策略、ksud 没接管都会让 su 失败）。
+            # 只靠模块存在判活，会把「加载了但用不了」当成健康状态一直挂着。
+            $usable = $true
             if ($HeartbeatEvery -gt 0 -and ($polls % $HeartbeatEvery) -eq 0) {
                 $up = (Invoke-Adb @("shell", "cat /proc/uptime") 10)
                 if ($up) { $up = ($up.Trim() -split "\s+")[0] }
-                Write-Log ("心跳：root 在线 uptime={0}s 已运行 {1:N0} 分钟，补打 {2} 次" -f $up, ((Get-Date) - $startedAt).TotalMinutes, $rerooted)
+                $usable = Test-SuUsable
+                if ($usable) {
+                    Write-Log ("心跳：root 在线且 su 可用 uptime={0}s 已运行 {1:N0} 分钟，补打 {2} 次" -f $up, ((Get-Date) - $startedAt).TotalMinutes, $rerooted)
+                } else {
+                    Write-Log ("心跳：kernelsu 在 /proc/modules 但 su 不可用（uptime={0}s）—— 判为不可用，重新补打" -f $up)
+                    Write-Event @{ event = "root-unusable"; uptime = $up; rerooted = $rerooted }
+                }
             }
-            if ($Once) { Write-Log "root 在线"; exit 0 }
-            Start-Sleep -Seconds $PollSec
-            continue
+            if ($usable) {
+                if ($Once) { Write-Log "root 在线"; exit 0 }
+                Start-Sleep -Seconds $PollSec
+                continue
+            }
+            # su 不可用：不 continue，落到下面的补打分支
         }
 
         Write-Log "root 不在，触发补打"

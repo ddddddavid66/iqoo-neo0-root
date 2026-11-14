@@ -378,6 +378,12 @@ try {
         exit 0
     }
 
+    # 失败也分两种：模块根本没加载，还是加载了但 su 用不了（SELinux 拦截 / ksud
+    # 没接管）。后者最容易被误判成「一切正常」，必须单独记一笔。
+    if (Test-KsuAlive) {
+        Write-Log "注意：kernelsu 已加载但 su 不可用 —— 可能是 SELinux 策略拦截或 ksud 未接管"
+        Write-Event @{ event = "root-partial"; uptime = $up; uptimeAfter = (Get-Uptime); log = $runLog }
+    }
     $state.failures = [int]$state.failures + 1
     if ($state.failures -ge $MaxConsecutiveFailures) {
         $until = (Get-Date).AddHours($CooldownHours)

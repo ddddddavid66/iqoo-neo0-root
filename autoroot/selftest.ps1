@@ -305,6 +305,40 @@ $results += [pscustomobject]@{
 Write-Host ("-> {0}" -f $(if ($fOk) { "PASS" } else { "FAIL" }))
 
 Write-Host ""
+# ---------------------------------------------------------------- G：加载了但用不了
+# kernelsu 在 /proc/modules 里，但 su 不可用（SELinux 策略 / ksud 没接管）。
+# 监督器必须能识别这种「假健康」，而不是挂着以为 root 好好的。
+Write-Host "===== 场景 G-su-unusable ====="
+Set-Mock $true $true 30
+$gDir = Join-Path $StateDir "G-su-unusable"
+Remove-Item -Recurse -Force $gDir -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $gDir | Out-Null
+$env:MOCK_SU_BROKEN = "1"
+$g = Start-WatchProbe $gDir
+Start-Sleep -Seconds 25
+try { $g.Proc.Kill() } catch { }
+Start-Sleep -Milliseconds 500
+$gLog = $g.Out.Result
+Remove-Item Env:MOCK_SU_BROKEN -ErrorAction SilentlyContinue
+Set-Content -LiteralPath (Join-Path $gDir "watch-stdout.txt") -Value $gLog -Encoding UTF8
+Write-Host (($gLog -split "\`r?\`n" | Where-Object { $_ } | Select-Object -Last 6) -join "\`n")
+
+$gEvPath = Join-Path $gDir "events.jsonl"
+$gEv = if (Test-Path $gEvPath) { Get-Content -LiteralPath $gEvPath -Raw } else { "" }
+$gOk1 = $gEv -match "root-unusable"
+$gOk2 = $gEv -match "watch-reroot-start"
+$gPass = $gOk1 -and $gOk2
+$results += [pscustomobject]@{
+    Case = "G-su-unusable"
+    Exit = "-"
+    WantExit = "-"
+    Event = "root-unusable + 补打"
+    FireUptime = ""
+    Pass = $gPass
+}
+Write-Host ("   识别出假健康={0} 已触发补打={1}" -f $gOk1, $gOk2)
+Write-Host ("-> {0}" -f $(if ($gPass) { "PASS" } else { "FAIL" }))
+
 Write-Host "===== 汇总 ====="
 $results | Format-Table -AutoSize | Out-String | Write-Host
 Set-Mock $true $false 30 | Out-Null
