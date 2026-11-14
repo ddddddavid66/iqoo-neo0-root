@@ -50,6 +50,10 @@ cd iqoo-neo9-ghostlock-pc
 
 任一项不对就先修这一项再往下走。
 
+> 登录自启（`install-autostart.ps1`）写出的命令带 `-FallbackWireless 10.206.33.5:5555`：
+> 开机后不管你插线还是只挂 Wi-Fi，监督器都会找到设备；只有对方真的处于 `device`
+> 状态才切换，避免卡在一个 `offline` 的 transport 上。
+
 ## 2. 启动自动 root
 
 ### 一条命令（推荐）
