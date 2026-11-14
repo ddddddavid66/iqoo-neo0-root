@@ -35,6 +35,8 @@ param(
     [int]$MaxHours = 0,
     # 每 N 轮打一次心跳，确认监督器还活着、设备还在。
     [int]$HeartbeatEvery = 15,
+    # 透传给 auto-reroot 的静置复查秒数（默认走它的 90s；自测里会调小）。
+    [int]$SettleSec = -1,
     [switch]$Once,
     [string]$Exe,
     [string]$Adb = "adb",
@@ -197,6 +199,7 @@ try {
         if ($Serial) { $argList += @("-Serial", $Serial) }
         if ($WirelessAddr) { $argList += @("-WirelessAddr", $WirelessAddr) }
         if ($drive) { $argList += "-RebootIfLate" }
+        if ($SettleSec -ge 0) { $argList += @("-SettleSec", "$SettleSec") }
         if ($StateDir) { $argList += @("-StateDir", $StateDir) }
         & powershell.exe @argList | Out-Host
         $code = $LASTEXITCODE

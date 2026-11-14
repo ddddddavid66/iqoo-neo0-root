@@ -89,11 +89,19 @@ profile 里写 `__tracepoint_sys_exit + 0x0`，payload 自己加 `.funcs` 的 `+
 │   │   └── stage/              # 推送 payload、生成设备侧脚本
 │   └── tools/port/             # OTA → 内核 → profile 的离线工具链
 ├── autoroot/
+│   ├── go.ps1                  # 上机入口：找设备 → doctor 体检 → 交棒常驻
 │   ├── auto-reroot.ps1         # 一次性：等窗口 → 发射 → 事实判定 → 静置复查
-│   ├── watch-root.ps1          # 常驻：判活 → 掉则补打 → 指数退避
+│   ├── watch-root.ps1          # 常驻：判活 → 掉则补打 → 指数退避 → USB/Wi-Fi 互切
+│   ├── selftest.ps1            # 无真机自测（五场景，跑在假 adb 上）
 │   ├── install-autostart.ps1   # 注册 Windows 登录自启
+│   ├── device/                 # 设备侧自启：Termux:Boot 钩子 + adb key 授权
 │   └── README.md
+├── tools/
+│   ├── port/                   # OTA → 内核 → profile 工具链
+│   └── mockadb/                # 假 adb / 假载荷（自测用）
 └── docs/
+    ├── AUTOROOT-DESIGN.md                # 自动 root 的三层设计 + 失败模式
+    ├── RUNBOOK-REAL-DEVICE.md            # 上机手册（判据 / 检查 / 故障处置）
     ├── DIAGNOSIS-AND-FIX-2026-11-01.md   # 归因、13 条代码 bug、P0–P3 计划
     ├── FIX-RUN-2026-11-01.md             # 修复实弹记录
     ├── PORT-NOTES.md                     # 字段逐个溯源与实测对照
@@ -112,6 +120,18 @@ profile 里写 `__tracepoint_sys_exit + 0x0`，payload 自己加 `.funcs` 的 `+
 
 ## 4. 用法
 
+### 4.0 一条命令上机（推荐）
+
+```powershell
+cd autoroot
+.\go.ps1                  # 找设备（USB 优先，失败转 Wi-Fi）→ doctor 体检 → 常驻自动 root
+.\go.ps1 -Wireless        # 强制走 Wi-Fi
+.\go.ps1 -MaxHours 8      # 跑 8 小时自动停
+.\go.ps1 -CheckOnly       # 只体检，不发射
+```
+
+任何一步不满足就停下并说清缺什么，不会带病跑到发射阶段。
+
 ### 4.1 一次性重打（PC 侧）
 
 ```powershell
@@ -125,17 +145,18 @@ profile 里写 `__tracepoint_sys_exit + 0x0`，payload 自己加 `.funcs` 的 `+
 .\autoroot\auto-reroot.ps1 -Wireless
 ```
 
-关键参数：`-Window`（uptime 窗口上沿，默认 90）、`-MaxRounds`、`-PerBoot`、`-SettleSec`（成功后静置复查秒数，默认 90；`bootId` 未变且 `su` 仍在才算成功）。
+关键参数：`-Window`（uptime 窗口上沿，默认 90）、`-MinUptime`（窗口下沿，默认 25 —— 早于此发射基本白送一次 panic 重启）、`-MaxRounds`、`-PerBoot`、`-SettleSec`（成功后静置复查秒数，默认 90；`bootId` 未变且 `su` 仍在才算成功）。
 
 ### 4.2 常驻监督
 
 ```powershell
-.\autoroot\watch-root.ps1 -RebootIfLate      # 前台常驻
-.\autoroot\install-autostart.ps1             # 注册 Windows 登录自启
-.\autoroot\install-autostart.ps1 -Remove     # 卸载
+.\autoroot\watch-root.ps1                     # 前台常驻（默认会主动重启抢窗口）
+.\autoroot\watch-root.ps1 -FallbackWireless 10.206.33.5:5555   # USB 不在就切 Wi-Fi
+.\autoroot\install-autostart.ps1              # 注册 Windows 登录自启（已带 Wi-Fi 回退）
+.\autoroot\install-autostart.ps1 -Remove      # 卸载
 ```
 
-每 20s 跑一次 `grep -c kernelsu /proc/modules`；消失就调 `auto-reroot.ps1`，失败按 300s 起指数退避（上限 1h），避免把设备打进无限 panic 重启。
+每 20s 跑一次 `grep -c kernelsu /proc/modules`（不 spawn `su`）；消失就调 `auto-reroot.ps1`，失败按 300s 起指数退避（上限 1h），避免把设备打进无限 panic 重启。
 
 ### 4.3 手动发射与调试
 
@@ -171,6 +192,25 @@ python tools/port/gen_checksums.py    out/
 ```
 
 生成的 `.conf` 放进 `internal/assets/profiles/`，在 `index.conf` 里注册一行，跑 `go test ./internal/profile/`。
+
+### 4.5 不上真机也能验证（假 adb）
+
+`tools/mockadb` 是一个假 adb：同一份二进制按文件名分两种人格——`mockadb.exe` 响应
+`devices/get-state/shell/reboot/connect`，`mockghostlock.exe` 被 fire 就把「已 root」写进
+状态文件。uptime 由状态文件里的 `boot_unix` 推出，所以「重启」可以真的把 uptime 归零。
+
+```powershell
+cd tools\mockadb
+go build -o mockadb.exe .
+go build -o mockghostlock.exe .
+cd ..\..
+
+powershell -File autoroot\selftest.ps1      # 五个场景：命中 / 抢窗口 / 无设备 / 监督补打 / 崩溃恢复
+cd iqoo-neo9-ghostlock-pc
+go test ./internal/run/ -run TestLoop -v   # Go 侧重试机器（probe→stage→fire→判胜）
+```
+
+这两层是这个项目最重要的回归网：PowerShell 那层验状态机，Go 那层验发射与判胜。
 
 ---
 

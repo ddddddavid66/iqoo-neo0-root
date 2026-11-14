@@ -333,15 +333,33 @@ try {
         $dump = Save-CrashDump
         # 90s 静置复查。日志说成功不等于待得住：18:29 那次拿到 root 后 54 秒
         # 内核就崩了（PS_HOLD 硬复位），看门狗当时已经 exit 0，之后 40 分钟无人补打。
+        #
+        # 等待期间必须**边等边看**：一次性的 Start-Sleep 会让「拿到后 10 秒就崩」
+        # 这种最坏情况和「一直好着」耗时一样长，白白多等 80 秒才交给外层补打。
+        # 这里每 5s 用不 spawn su 的廉价判活探一次，掉得早发现得早。
         $stable = $true
         if ($SettleSec -gt 0) {
             Write-Log ("静置 {0}s 复查 root 是否还在…" -f $SettleSec)
-            Start-Sleep -Seconds $SettleSec
-            $bootId2 = Get-BootId
-            $stillRoot = Test-Root
-            $stable = ($bootId2 -eq $bootId) -and $stillRoot
-            if (-not $stillRoot) { Write-Log "复查：su 已不可用" }
-            elseif ($bootId2 -ne $bootId) { Write-Log "复查：设备已重启（bootId 变了），root 归零" }
+            $settleEnd = (Get-Date).AddSeconds($SettleSec)
+            while ((Get-Date) -lt $settleEnd) {
+                Start-Sleep -Seconds 5
+                if (-not (Test-KsuAlive)) {
+                    $stable = $false
+                    Write-Log "复查：静置期间 kernelsu 已不在 /proc/modules"
+                    break
+                }
+                if ((Get-BootId) -ne $bootId) {
+                    $stable = $false
+                    Write-Log "复查：静置期间设备已重启（bootId 变了），root 归零"
+                    break
+                }
+            }
+            if ($stable) {
+                # 最后再用 su 做一次事实核对：/proc/modules 在不代表 su 能用。
+                $stillRoot = Test-Root
+                $stable = $stillRoot -and ((Get-BootId) -eq $bootId)
+                if (-not $stillRoot) { Write-Log "复查：su 已不可用" }
+            }
         }
         if (-not $stable) {
             $state.failures = [int]$state.failures + 1
