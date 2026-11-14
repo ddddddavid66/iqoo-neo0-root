@@ -91,6 +91,14 @@ KernelSU 只能 late-load 到内存，**任何重启都清零**。想要一次�
 `E-panic-after-root`（命中后内核崩、设备重启、root 归零 → 等到窗口下沿再补回）、
 `C-absent`（没有设备时绝不发射）。
 
+Go 侧那一层用同一份假 adb 直接跑真实的 `Loop`（`internal/run/loop_mock_test.go`）：
+`device.ADB.Bin` 指向 mockadb，于是 probe → profile → stage → 窗口判断 → fire → 判胜
+这条链路真的被执行，而不是被 PowerShell 的假载荷绕过去。
+
+> 踩过的坑：假 adb 一开始不回答 `pm list packages`，导致 `findManager` 对十几个包名
+> 各重试 5 次（每次 500ms），光探测就 20 秒，测试直接超窗。补齐管理器回答后整条链路
+> 降到 2.4 秒。
+
 这套自测上线当天就抓出两个真 bug：
 
 1. 过窗口主动重启后，守护在 `uptime=5s` 就发射（命中区间在 30s 之后）→ 加 `-MinUptime 25`；
