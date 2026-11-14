@@ -9,12 +9,14 @@
 |---|---|
 | `go.ps1` | **上机入口**：找设备（USB 优先，失败转 Wi-Fi）→ 跑 `doctor` 体检 → 交棒 `watch-root.ps1` |
 | `auto-reroot.ps1` | 状态机：等设备 → 幂等查 root → 等窗口 → 发射 → 用 `su -c id` 事实判定 → 静置复查 → 记事件/刹车 |
-| `watch-root.ps1` | **常驻监督**：每 20s 用 `grep -c kernelsu /proc/modules` 判活（不 spawn `su`），掉则调 `auto-reroot.ps1`，失败指数退避 |
-| `install-autostart.ps1` | 注册/卸载自启（默认写「启动」文件夹，指向 `watch-root.ps1`；`-Method Task` 才用计划任务） |
+| `watch-root.ps1` | **常驻监督**：每 20s 用 `grep -c kernelsu /proc/modules` 判活（不 spawn `su`），掉则调 `auto-reroot.ps1`；心跳时额外做一次 `su` 核对，识别「模块在但 su 用不了」；失败指数退避 |
+| `install-autostart.ps1` | 注册/卸载自启（默认写「启动」文件夹，指向 `watch-root.ps1` 并带 `-FallbackWireless`；`-Method Task` 才用计划任务） |
+| `selftest.ps1` | **无真机自测**：七个场景跑在假 adb 上（命中 / 抢窗口 / 无设备 / 监督补打 / 崩溃恢复 / 上机入口 / 假健康） |
+| `soak.ps1` | 反复掉线压测：交替模拟「设备在跑 root 消失」与「panic 重启」，看每次是否补回 |
 | `device/` | **设备侧自启**（不依赖 PC）：Termux:Boot 钩子 + adb key 授权脚本，见 `device/README.md` |
 | `state/auto-reroot-YYYYMM.log` | 人读日志 |
 | `state/watch-YYYYMM.log` | 常驻监督器日志（含心跳） |
-| `state/events.jsonl` | 机器读事件（`already-root` / `root-ok` / `root-fail` / `root-unstable` / `window-missed` / `watch-*`） |
+| `state/events.jsonl` | 机器读事件（`already-root` / `root-ok` / `root-fail` / `root-unstable` / `root-unusable` / `root-partial` / `window-missed` / `switch-transport` / `watch-*`） |
 | `state/state.json` | 失败计数与冷却期 |
 | `state/fire-*.log` | 每次发射时 `ghostlock run` 的完整输出 |
 | `state/crash/` | 拿到 root 那一刻抓的 pstore/dmesg（本机 pstore 无 record 区，通常为空） |
@@ -50,6 +52,22 @@
 `watch-root.ps1` 另有：`-PollSec 20`（判活间隔）、`-FailBackoffSec 300` /
 `-MaxBackoffSec 3600`（失败退避）、`-HeartbeatEvery 15`（每 15 次判活打一条心跳）、
 `-MaxHours 0`（0 = 不限时）、`-NoReboot`。
+
+## 自测（不需要手机）
+
+```powershell
+cd tools\mockadb
+go build -o mockadb.exe . ; go build -o mockghostlock.exe .
+cd ..\..
+
+powershell -File autoroot\selftest.ps1     # 七个场景，约 7 分钟
+powershell -File autoroot\soak.ps1         # 反复掉线，约 3 分钟
+
+cd iqoo-neo9-ghostlock-pc
+go test ./internal/run/ -run TestLoop -v  # Go 侧发射与判胜
+```
+
+判据：`selftest` 全绿、`soak` 每轮都补回、`go test` 通过，才上真机。
 
 ## 实测时序（2026-11-01，6 次重启）
 

@@ -134,11 +134,10 @@ Get-Process powershell | Where-Object { $_.CommandLine -like "*watch-root*" } | 
 .\autoroot\install-autostart.ps1 -Remove
 ```
 
-清理设备侧痕迹（可选）：
+清理设备侧痕迹（可选）。CLI **没有** `clean` 子命令，只有 `run --clean-after`（发射成功后自动清）；要立刻清就手工删：
 
 ```powershell
-cd iqoo-neo9-ghostlock-pc
-.\bin\ghostlock.exe clean --serial 10CE5P1A4G001PA
+adb -s 10CE5P1A4G001PA shell "rm -rf /data/local/tmp/ghostlock /data/local/tmp/ksud"
 ```
 
 ## 6. 已知边界
