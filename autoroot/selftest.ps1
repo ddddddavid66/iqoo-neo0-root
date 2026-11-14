@@ -138,6 +138,26 @@ Invoke-Case "A-hit" { Set-Mock $true $false 30 } @() 0 "root-ok" -minFireUptime 
 Invoke-Case "B-reboot-late" { Set-Mock $true $false 6000 } @("-RebootIfLate") 0 "root-ok" -minFireUptime 25
 Invoke-Case "C-absent" { Set-Mock $false $false 0 } @() -1 "" -timeoutSec 30
 
+function Start-WatchProbe {
+    param([string]$dir)
+    $watch = Join-Path $hereDir "watch-root.ps1"
+    $a = @(
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $watch,
+        "-Serial", "MOCKSERIAL", "-Adb", $mockAdb, "-Exe", $mockExe,
+        "-StateDir", $dir, "-PollSec", "2", "-FailBackoffSec", "5",
+        "-MaxBackoffSec", "10", "-HeartbeatEvery", "2", "-NoReboot"
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "powershell.exe"
+    $psi.Arguments = (($a | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join " ")
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    return @{ Proc = $p; Out = $p.StandardOutput.ReadToEndAsync() }
+}
+
 # ---------------------------------------------------------------- D：监督 + 掉线补打
 # 这是「自动 root」的核心行为：root 在线时不动，掉线后自己补回来。
 Write-Host ""
@@ -197,6 +217,51 @@ $results += [pscustomobject]@{
 }
 Write-Host ("   触发补打={0} 补打成功={1} root 恢复={2}" -f $dOk1, $dOk2, $dOk3)
 Write-Host ("-> {0}" -f $(if ($dPass) { "PASS" } else { "FAIL" }))
+
+# ---------------------------------------------------------------- E：命中后内核崩（panic 重启）
+# 11-01 18:29 的真实失败模式：root 拿到 ~1 分钟后内核崩、设备重启、root 归零。
+# 这里把它做成：root 在线 → 突然 root=0 且 uptime 归零（模拟 panic 重启）→ 必须自己补回来。
+Write-Host ""
+Write-Host "===== 场景 E-panic-after-root ====="
+Set-Mock $true $true 30
+$eDir = Join-Path $StateDir "E-panic-after-root"
+Remove-Item -Recurse -Force $eDir -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $eDir | Out-Null
+
+$w = Start-WatchProbe $eDir
+Start-Sleep -Seconds 6
+Write-Host "   模拟「命中后内核崩」：root 归零 + 重启进行中（uptime 归 0）"
+Set-Mock $true $false 0
+Start-Sleep -Seconds 70
+
+try { $w.Proc.Kill() } catch { }
+Start-Sleep -Milliseconds 500
+$wLog = $w.Out.Result
+Set-Content -LiteralPath (Join-Path $eDir "watch-stdout.txt") -Value $wLog -Encoding UTF8
+Write-Host (($wLog -split "`r?`n" | Where-Object { $_ } | Select-Object -Last 10) -join "`n")
+
+$eEventsPath = Join-Path $eDir "events.jsonl"
+$eEv = if (Test-Path $eEventsPath) { Get-Content -LiteralPath $eEventsPath -Raw } else { "" }
+$eAfter = Get-Content -LiteralPath (Join-Path $mockDir "mock-state.txt") -Raw
+
+$firedUp = -1
+if ($wLog -match "进入窗口：uptime=(\d+)s") { $firedUp = [int]$matches[1] }
+
+$eOk1 = $eEv -match "root-ok"          # 崩完之后仍然补回来了
+$eOk2 = $eAfter -match "root=1"        # mock 侧确认 root 在位
+$eOk3 = $firedUp -ge 25                # 重启后没有抢早，等到了窗口下沿
+$ePass = $eOk1 -and $eOk2 -and $eOk3
+
+$results += [pscustomobject]@{
+    Case = "E-panic-after-root"
+    Exit = "-"
+    WantExit = "-"
+    Event = "重启后 root-ok"
+    FireUptime = $firedUp
+    Pass = $ePass
+}
+Write-Host ("   重启后补回={0} root 在位={1} 发射 uptime={2}s（≥25）" -f $eOk1, $eOk2, $firedUp)
+Write-Host ("-> {0}" -f $(if ($ePass) { "PASS" } else { "FAIL" }))
 
 Write-Host ""
 Write-Host "===== 汇总 ====="

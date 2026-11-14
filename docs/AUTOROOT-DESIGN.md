@@ -86,8 +86,10 @@ KernelSU 只能 late-load 到内存，**任何重启都清零**。想要一次�
 `devices/get-state/shell/reboot/connect`，`mockghostlock.exe` 被 fire 就把「已 root」写进
 状态文件；uptime 由状态文件里的 `boot_unix` 推出，所以「重启」可以真的把 uptime 归零。
 
-`autoroot/selftest.ps1` 用它跑四个场景，`D-supervise` 就是本设计的核心断言：
-**root 在线时不打扰，掉线后自动在窗口内补回来。**
+`autoroot/selftest.ps1` 用它跑五个场景，其中三个直接对应本设计的关键断言：
+`D-supervise`（root 在线时不打扰，掉线后自动在窗口内补回来）、
+`E-panic-after-root`（命中后内核崩、设备重启、root 归零 → 等到窗口下沿再补回）、
+`C-absent`（没有设备时绝不发射）。
 
 这套自测上线当天就抓出两个真 bug：
 
