@@ -191,13 +191,15 @@ func shell(cmd string, s state, reachable bool) {
 	// 管理器的探测要能立刻命中，否则 findManager 会对十几个包名各重试 5 次，
 	// 每次 500ms —— 光探测就 20 秒，把测试拖成天。
 	case strings.Contains(cmd, ".gl_ksu_pkg"):
-		fmt.Println("com.sukisu.ultra")
+		if os.Getenv("MOCK_NO_MANAGER") == "" {
+			fmt.Println("com.sukisu.ultra")
+		}
 	case strings.Contains(cmd, "pm list packages"):
-		if strings.Contains(cmd, "com.sukisu.ultra") {
+		if os.Getenv("MOCK_NO_MANAGER") == "" && strings.Contains(cmd, "com.sukisu.ultra") {
 			fmt.Println("package:com.sukisu.ultra")
 		}
 	case strings.Contains(cmd, "pm path"):
-		if strings.Contains(cmd, "com.sukisu.ultra") {
+		if os.Getenv("MOCK_NO_MANAGER") == "" && strings.Contains(cmd, "com.sukisu.ultra") {
 			fmt.Println("package:/data/app/com.sukisu.ultra-1/base.apk")
 		}
 	case strings.Contains(cmd, "lib/arm64/libksud.so"):

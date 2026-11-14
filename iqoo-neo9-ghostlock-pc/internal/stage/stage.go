@@ -137,8 +137,16 @@ func findManager(a *device.ADB) (pkg, ksud string) {
 	// still coming up and the listing either fails or arrives too late, which
 	// leaves manager uid = 0 in the kernel and makes the manager show
 	// "未安装". A per-package "pm path" probe is small and retried.
-	for _, p := range ManagerPackages {
-		for attempt := 0; attempt < 5; attempt++ {
+	//
+	// 探测时间要压住：命中窗口只有 ~55s 宽。旧写法是「每个包名连试 5 次、每次
+	// sleep 500ms」，最坏 9 个包名 × 5 × 515ms ≈ 24s —— 一旦没有 .gl_ksu_pkg
+	// 缓存（新设备、刚清过 /data/local/tmp），光探测就把窗口吃掉一半。
+	// 改成「每轮扫一遍全部候选 + 总预算 probeBudget」，最坏约 3s，而且
+	// PackageManager 稍后可用时能立刻命中。
+	const probeBudget = 8 * time.Second
+	deadline := time.Now().Add(probeBudget)
+	for attempt := 0; attempt < 5; attempt++ {
+		for _, p := range ManagerPackages {
 			// "pm list packages <filter>" answers a single package fast and is
 			// available earlier than the full listing; "pm path" exits 0 even
 			// for a missing package so its output must be checked.
@@ -152,8 +160,11 @@ func findManager(a *device.ADB) (pkg, ksud string) {
 					return p, ksudForPackage(a, p)
 				}
 			}
-			time.Sleep(500 * time.Millisecond)
 		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	return "", ""
 }
