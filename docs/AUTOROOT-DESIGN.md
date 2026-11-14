@@ -79,3 +79,19 @@ KernelSU 只能 late-load 到内存，**任何重启都清零**。想要一次�
 3. `grep -c kernelsu /proc/modules` = 1
 
 日志证据：`autoroot/state/events.jsonl` 里的 `root-ok`（带 `bootId`、`settleSec`、`uptimeAfter`）。
+
+## 离线怎么验证（假 adb）
+
+`tools/mockadb` 是一个假 adb：同一份二进制按文件名分成两种人格——`mockadb.exe` 响应
+`devices/get-state/shell/reboot/connect`，`mockghostlock.exe` 被 fire 就把「已 root」写进
+状态文件；uptime 由状态文件里的 `boot_unix` 推出，所以「重启」可以真的把 uptime 归零。
+
+`autoroot/selftest.ps1` 用它跑四个场景，`D-supervise` 就是本设计的核心断言：
+**root 在线时不打扰，掉线后自动在窗口内补回来。**
+
+这套自测上线当天就抓出两个真 bug：
+
+1. 过窗口主动重启后，守护在 `uptime=5s` 就发射（命中区间在 30s 之后）→ 加 `-MinUptime 25`；
+2. `watch-root.ps1` 调子进程 `auto-reroot.ps1` 时没有透传 `-Serial` / `-Adb`，子进程会退回
+   默认序列号和 PATH 里的真 adb —— 在 USB+Wi-Fi 双 transport 的真机上，这正是
+   「报 more than one device / 打到错设备」的来源。

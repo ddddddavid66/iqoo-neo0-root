@@ -26,8 +26,11 @@ cd ..\..
 powershell -File autoroot\selftest.ps1
 ```
 
-三个场景：`A-hit`（窗口内命中）、`B-reboot-late`（过窗口→主动重启→命中，且断言发射
-uptime ≥ 25s）、`C-absent`（无设备时不发射）。全绿再上真机。
+四个场景：`A-hit`（窗口内命中）、`B-reboot-late`（过窗口→主动重启→命中，且断言发射
+uptime ≥ 25s）、`C-absent`（无设备时不发射）、`D-supervise`（root 在线时不动 → 掉线 →
+自动补回）。四绿再上真机。
+
+`D` 是「自动 root」真正要证明的那一条：监督器能自己发现 root 没了并在窗口内补回来。
 
 ## 1. 前置检查（约 30 秒）
 ```powershell
