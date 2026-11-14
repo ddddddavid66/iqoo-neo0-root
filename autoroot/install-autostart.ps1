@@ -28,6 +28,8 @@ $cmdPath = Join-Path $startupDir "GhostLock-WatchRoot.cmd"
 if (-not (Test-Path $script)) { Write-Host "no watch-root.ps1"; exit 10 }
 
 $extra = if ($RebootIfLate) { " -RebootIfLate" } else { "" }
+# 加上 Wi-Fi 回退：登录自启时不知道手机是插线还是走无线，只认 USB 序列号会一直干等。
+$extra += " -FallbackWireless 10.206.33.5:5555"
 $psLine = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$script""$extra"
 
 if ($Remove) {

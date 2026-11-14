@@ -38,6 +38,8 @@ param(
     [switch]$Once,
     [string]$Exe,
     [string]$Adb = "adb",
+    # USB 不在时自动改用 Wi-Fi adb（登录自启时不知道手机是怎么接的）。
+    [string]$FallbackWireless = "",
     [string]$StateDir
 )
 
@@ -112,6 +114,44 @@ $drive = -not $NoReboot
 Write-Log ("=== watch 启动：serial={0} poll={1}s once={2} drive={3} maxHours={4}" -f $Serial, $PollSec, [bool]$Once, $drive, $MaxHours)
 if ($WirelessAddr) { & $Adb connect $WirelessAddr 2>&1 | Out-Null }
 
+# USB 掉没了就切 Wi-Fi，Wi-Fi 不可用还要能切回 USB：登录自启时不知道手机是怎么接的，
+# 只认一个序列号就会一直干等，或者卡在一个已经死掉的 transport 上。
+$homeSerial = $Serial
+$lastSwitchTry = [DateTime]::MinValue
+
+# 用任意序列号探一次状态（Invoke-Adb 绑定的是 $Serial，这里临时换一下）。
+function Get-StateOf([string]$s) {
+    $old = $script:Serial
+    $script:Serial = $s
+    $st = (Invoke-Adb @("get-state") 8)
+    $script:Serial = $old
+    if ($null -eq $st) { return "" }
+    return $st.Trim()
+}
+
+function Switch-To([string]$s, [string]$why) {
+    if ($script:Serial -eq $s) { return $false }
+    $script:Serial = $s
+    if ($s -match ":") { $script:WirelessAddr = $s } else { $script:WirelessAddr = "" }
+    Write-Log ("transport 切换（{0}）：{1}" -f $why, $s)
+    Write-Event @{ event = "switch-transport"; serial = $s; why = $why }
+    return $true
+}
+
+# 当前 transport 不通时，找一个通的：先试备用 Wi-Fi，再试回原始序列号。
+function Try-OtherTransport {
+    if (((Get-Date) - $script:lastSwitchTry).TotalSeconds -lt 30) { return $false }
+    $script:lastSwitchTry = Get-Date
+    foreach ($cand in @($FallbackWireless, $homeSerial)) {
+        if (-not $cand -or $cand -eq $script:Serial) { continue }
+        if ($cand -match ":") { & $Adb connect $cand 2>&1 | Out-Null }
+        $st = Get-StateOf $cand
+        if ($st -eq "device") { return (Switch-To $cand "另一条链可用") }
+        Write-Log ("备选 {0} 状态={1}，暂不切换" -f $cand, $(if ($st) { $st } else { "无响应" }))
+    }
+    return $false
+}
+
 try {
     while ($true) {
         if ($MaxHours -gt 0 -and ((Get-Date) - $startedAt).TotalHours -ge $MaxHours) {
@@ -126,6 +166,7 @@ try {
         $state = $state.Trim()
         if ($state -ne "device") {
             if ($WirelessAddr) { & $Adb connect $WirelessAddr 2>&1 | Out-Null }
+            if (Try-OtherTransport) { continue }
             Write-Log ("设备不可用（{0}），等 {1}s" -f $state, $PollSec)
             if ($Once) { exit 3 }
             Start-Sleep -Seconds $PollSec

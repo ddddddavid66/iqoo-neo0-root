@@ -115,11 +115,15 @@ func payload() {
 
 func adb(args []string) {
 	s := readState()
-	_, rest := joinArgs(args)
+	serial, rest := joinArgs(args)
 	if len(rest) == 0 {
 		fmt.Println("usage: mockadb devices|get-state|shell <cmd>|reboot|connect")
 		return
 	}
+
+	// 只认 MOCKSERIAL 和形如 ip:port 的无线序列号，其它一律当作不存在 ——
+	// 这样「USB 不在、要切 Wi-Fi」的路径才能被真正测到。
+	reachable := s.present && (serial == "" || serial == "MOCKSERIAL" || strings.Contains(serial, ":"))
 
 	switch rest[0] {
 	case "devices":
@@ -129,15 +133,20 @@ func adb(args []string) {
 		}
 		return
 	case "get-state":
-		if s.present {
+		if reachable {
 			fmt.Println("device")
 		} else {
-			fmt.Fprintln(os.Stderr, "error: no devices/emulators found")
+			fmt.Fprintf(os.Stderr, "error: device '%s' not found\n", serial)
 			os.Exit(1)
 		}
 		return
 	case "connect":
-		fmt.Println("connected to " + strings.Join(rest[1:], " "))
+		if s.present {
+			fmt.Println("connected to " + strings.Join(rest[1:], " "))
+		} else {
+			fmt.Fprintln(os.Stderr, "failed to connect: Connection refused")
+			os.Exit(1)
+		}
 		return
 	case "reboot":
 		s.bootUnix = time.Now().Unix()
@@ -149,12 +158,15 @@ func adb(args []string) {
 		return
 	case "shell":
 		cmd := strings.Join(rest[1:], " ")
-		shell(cmd, s)
+		shell(cmd, s, reachable)
 		return
 	}
 }
 
-func shell(cmd string, s state) {
+func shell(cmd string, s state, reachable bool) {
+	if !reachable {
+		os.Exit(1)
+	}
 	up := int64(0)
 	if s.present {
 		up = time.Now().Unix() - s.bootUnix
