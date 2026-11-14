@@ -27,6 +27,7 @@ _src/
 # 与本项目无关的宿主机工具（zig/go 工具链、DSH 会话脚本）
 tools/*
 !tools/port/
+!tools/mockadb/
 !tools/README.md
 
 # 编译产物
