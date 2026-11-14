@@ -33,6 +33,18 @@ cd iqoo-neo9-ghostlock-pc
 
 ## 2. 启动自动 root
 
+### 一条命令（推荐）
+
+```powershell
+cd autoroot
+.\go.ps1                  # 找设备 → doctor 体检 → 常驻自动 root
+.\go.ps1 -Wireless        # 强制 Wi-Fi
+.\go.ps1 -MaxHours 8      # 跑 8 小时自停
+.\go.ps1 -CheckOnly       # 只体检，不发射
+```
+
+`go.ps1` 任何一步不满足都会直接停并说清楚缺什么，不会带病跑到发射阶段。
+
 ### 模式 A：PC 监督（默认，今天已验证过）
 
 ```powershell

@@ -7,6 +7,7 @@
 
 | 文件 | 作用 |
 |---|---|
+| `go.ps1` | **上机入口**：找设备（USB 优先，失败转 Wi-Fi）→ 跑 `doctor` 体检 → 交棒 `watch-root.ps1` |
 | `auto-reroot.ps1` | 状态机：等设备 → 幂等查 root → 等窗口 → 发射 → 用 `su -c id` 事实判定 → 静置复查 → 记事件/刹车 |
 | `watch-root.ps1` | **常驻监督**：每 20s 用 `grep -c kernelsu /proc/modules` 判活（不 spawn `su`），掉则调 `auto-reroot.ps1`，失败指数退避 |
 | `install-autostart.ps1` | 注册/卸载自启（默认写「启动」文件夹，指向 `watch-root.ps1`；`-Method Task` 才用计划任务） |
@@ -21,14 +22,15 @@
 ## 用法
 
 ```powershell
-# 先干跑看计划
-.\auto-reroot.ps1 -DryRun
+# 一条命令上机（推荐）：体检 + 常驻自动 root
+.\go.ps1
+.\go.ps1 -Wireless                 # 走 Wi-Fi
+.\go.ps1 -CheckOnly                # 只体检不发射
 
-# 手动跑一次（设备已 root 会直接退出）
-.\auto-reroot.ps1
-
-# 开机太晚、已过窗口时主动重启去抢下一次
-.\auto-reroot.ps1 -RebootIfLate
+# 或者分开用
+.\auto-reroot.ps1 -DryRun          # 先干跑看计划
+.\auto-reroot.ps1                  # 手动跑一次（设备已 root 会直接退出）
+.\auto-reroot.ps1 -RebootIfLate    # 开机太晚、已过窗口时主动重启去抢下一次
 
 # 常驻监督（默认就会主动重启抢窗口；-NoReboot 关掉这个行为）
 .\watch-root.ps1
