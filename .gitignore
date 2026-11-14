@@ -13,10 +13,12 @@ ota/
 image/
 offsets/
 intel/
-ksu/
-exploit/
-run/
-gpu-root/
+# 这几个只忽略根目录下的试验输出：必须锚定，否则 run/ 会连
+# iqoo-neo9-ghostlock-pc/internal/run/ 一起吞掉（真踩过）。
+/ksu/
+/exploit/
+/run/
+/gpu-root/
 build/
 publish/
 _research/
@@ -32,10 +34,12 @@ tools/*
 *.exe
 *.dll
 *.so
-*.ko
 *.o
 *.a
 *.zip
+# vrpatch.ko 是随工具内嵌分发的 payload，必须入库：不能一刀切忽略 *.ko
+*.ko
+!iqoo-neo9-ghostlock-pc/internal/assets/payload/vrpatch.ko
 
 # 内核/固件镜像与中间产物
 *.img
