@@ -153,3 +153,31 @@ payload 自己加上**。所以 profile 必须给 tracepoint 基址；如果写�
 4. `kernel_phys_load` / `kernel_phys_offset`：本机 `xbl_config` 与 `uefi` 都不含
    Kernel memory-map，提取器给 `null`（运行时按 SoC 公式回退）。若 KernelSnitch
    阶段反复失败，再显式写 `0xA8000000` / `0x80000000` 试。
+
+## 2026-11-16 真机实测：W1 会让本机内核崩，必须跳过
+
+**现象**：设备处于 SELinux **Enforcing** 时，payload 一进入 W1（`=== W1: SELinux ===
+target=<selinux_enforcing>`）后约 1 秒内核就死，`native` 日志停在 `heap spray done`，
+设备 panic 重启。
+
+**为什么 11-01 能成功**：那次日志里写的是 `[+] SELinux already permissive` ——
+设备当时已是 permissive，W1 被自动跳过，直接进 W2 cred。也就是说 **W1 这条路径在本机
+从未被成功执行过**。
+
+**验证**：把 profile 的 `execution.stages.w1_attempts` 置 0（跳过 W1），在 Enforcing
+状态下重跑，一次通过：
+
+```
+[+] child is root!
+[+] no app seccomp filter (adb/shell flow); skipping W3
+[T+26754ms] exploit complete
+handoff: root script path=/data/local/tmp/.ghostlock_root.sh
+enforce=1 (enforcing)
+[+] KernelSU ready
+```
+
+之后 `su -c id` → `uid=0(root) ... context=u:r:ksu:s0`，且 `getenforce` 仍是
+`Enforcing` —— **不需要把 SELinux 改成 permissive 也能拿到 root**。
+
+**结论**：`5.15.137-g7cb3e06b062c-dirty.conf` 里固定 `w1_attempts = 0`，
+并保留「默认 enforce=1」的设定。

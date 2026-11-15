@@ -22,6 +22,8 @@ param(
     [string]$WirelessAddr = "10.206.33.5:5555",
     [switch]$Wireless,
     [int]$MaxHours = 0,
+    # 设备刚重启时 adb 里会有一段时间什么都没有；这里等它出现，而不是立刻放弃。
+    [int]$WaitDeviceSec = 120,
     [switch]$CheckOnly,
     [string]$Adb = "adb"
 )
@@ -60,6 +62,22 @@ if (-not $use) {
     & $Adb connect $WirelessAddr 2>&1 | Out-Null
     Start-Sleep -Seconds 1
     if ((& $Adb devices 2>&1 | Out-String) -match [regex]::Escape($WirelessAddr) + "\s+device") { $use = $WirelessAddr }
+}
+if (-not $use) {
+    # 刚重启 / 刚插线时都会短暂看不到设备，先等一会儿再下结论。
+    $deadline = (Get-Date).AddSeconds($WaitDeviceSec)
+    Say ("暂时没看到设备，等它出现（最多 {0}s）…" -f $WaitDeviceSec)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 3
+        $devices = (& $Adb devices 2>&1 | Out-String)
+        foreach ($line in ($devices -split "`r?`n")) {
+            if ($line -match "^(\S+)\s+device") {
+                if ($matches[1] -eq $Serial -or $matches[1] -notmatch ":") { $use = $matches[1]; break }
+            }
+        }
+        if ($use) { break }
+        if (-not $Wireless) { & $Adb connect $WirelessAddr 2>&1 | Out-Null }
+    }
 }
 if (-not $use) {
     Say "没找到可用设备。检查：USB 线 / 开发者选项里的 USB 调试 / Wi-Fi 是否同网段。"

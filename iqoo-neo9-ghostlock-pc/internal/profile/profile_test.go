@@ -272,7 +272,8 @@ func TestResolveNeo9_5137(t *testing.T) {
 		{"route.multicast_waiter", "buffer_size", 264},
 		{"route.multicast_waiter", "task_offset", 48},
 		{"route.multicast_waiter", "lock_offset", 56},
-		{"execution.stages", "w1_attempts", 15},
+		// W1（写 selinux_enforcing 关 SELinux）会让本机内核 panic，实测必须跳过。
+		{"execution.stages", "w1_attempts", 0},
 		{"execution.consumer", "max_calls", 1},
 	}
 	for _, c := range cases {

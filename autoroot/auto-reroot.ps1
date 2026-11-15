@@ -223,14 +223,27 @@ try {
     Connect-Wireless
     if (Test-Path $lockFile) {
         $age = (Get-Date) - (Get-Item $lockFile).LastWriteTime
-        if ($age.TotalHours -lt 2) {
-            Write-Log "已有实例在跑（锁 $lockFile，$([int]$age.TotalMinutes) 分钟前），本次退出"
+        $holder = (Get-Content -LiteralPath $lockFile -Raw -ErrorAction SilentlyContinue)
+        $holderAlive = $false
+        if ($holder -and $holder.Trim() -match '^\d+$') {
+            try { $holderAlive = [bool](Get-Process -Id ([int]$holder.Trim()) -ErrorAction Stop) } catch { $holderAlive = $false }
+        }
+        # 只按「文件在不在」判断会被强杀的实例永久卡死（实测踩过：死锁挂 20 分钟，
+        # 守护每 20s 空转一次）。先看持有者进程是否还活着，再看年龄。
+        if ($holderAlive) {
+            Write-Log "已有实例在跑（pid $($holder.Trim())，锁 $lockFile），本次退出"
             exit 0
         }
-        Write-Log "清理过期锁（$([int]$age.TotalHours) 小时前）"
+        if (-not $holder -and $age.TotalMinutes -lt 15) {
+            # 老格式锁（没有 pid）且刚创建，保守等待
+            Write-Log "已有实例在跑（旧格式锁，$([int]$age.TotalMinutes) 分钟前），本次退出"
+            exit 0
+        }
+        Write-Log ("清理失效锁（持有者 pid={0} 已不在，锁龄 {1} 分钟）" -f $(if ($holder) { $holder.Trim() } else { "?" }), [int]$age.TotalMinutes)
         Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
     }
     $lock = New-Item -ItemType File -Path $lockFile -Force -ErrorAction Stop
+    $PID | Set-Content -LiteralPath $lockFile -Encoding ASCII
 
     Write-Log "=== 启动：exe=$Exe window=$Window rounds=$MaxRounds perBoot=$PerBoot dryRun=$DryRun"
     $state = Read-State
