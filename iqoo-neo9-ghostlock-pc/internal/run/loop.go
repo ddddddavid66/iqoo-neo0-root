@@ -85,7 +85,10 @@ func Loop(lo *LoopOptions) (*Result, error) {
 		lo.Rounds = 10
 	}
 	if lo.PerBoot <= 0 {
-		lo.PerBoot = 6
+		// One shot per boot. A second shot inside the same boot is what
+		// panics the kernel about a minute after the first one succeeded;
+		// see the `fired` comment in Loop.
+		lo.PerBoot = 1
 	}
 	if lo.Window <= 0 {
 		lo.Window = 90
@@ -221,6 +224,14 @@ func Loop(lo *LoopOptions) (*Result, error) {
 	lo.printf(nl+"[i] 最多 %d 轮 × 每轮 %d 次；uptime 窗口 %ds；失败由手机自己重启"+nl,
 		lo.Rounds, lo.PerBoot, lo.Window)
 
+	// fired is the boot_id of the boot this loop has already shot at. One shot
+	// per boot is a hard rule: the second one writes W2 into a kernel that
+	// already carries the late-loaded module and panics ~60s later, taking the
+	// root that the first shot had just produced down with it. Field data:
+	// every "root was up then died" run fired twice on one boot; the run that
+	// fired once at uptime 34s stayed alive past 500s.
+	fired := ""
+
 	for r := 1; r <= lo.Rounds; r++ {
 		lo.printf(nl+"================ 第 %d/%d 轮 ================"+nl, r, lo.Rounds)
 
@@ -236,6 +247,13 @@ func Loop(lo *LoopOptions) (*Result, error) {
 		}
 		if !o.ADB.WaitShell(180 * time.Second) {
 			lo.printf("[!] 180s 没等到 adb shell，跳过本轮" + nl)
+			continue
+		}
+		if id := o.ADB.BootID(); id != "" && id == fired {
+			lo.printf("[i] 这个 boot 已经打过一次，不再重复发射（二次发射会打死内核）—— 重启换 boot" + nl)
+			if err := o.ADB.Reboot(); err != nil {
+				lo.printf("[!] 重启失败: %v"+nl, err)
+			}
 			continue
 		}
 		up, err := o.ADB.Uptime()
@@ -280,6 +298,11 @@ func Loop(lo *LoopOptions) (*Result, error) {
 				}
 			}
 			lo.printf("---- 第 %d 轮 / 第 %d 次（uptime=%.0fs）----"+nl, r, n, up)
+			// Remember the boot before the shot, not after: when the shot
+			// kills the kernel this loop never gets to write it down.
+			if id := o.ADB.BootID(); id != "" {
+				fired = id
+			}
 			res := fire(o.ADB, files, lo.Timeout, lo.printf)
 			if res.Won {
 				if o.CleanAfter {
@@ -298,11 +321,16 @@ func Loop(lo *LoopOptions) (*Result, error) {
 			if res.Dropped {
 				dropped = true
 				lo.printf("[!] 连接掉了（多半是 panic 重启）—— 等设备自己回来" + nl)
-				// A drop is not proof of failure: the hand-off often wins right
-				// before the kernel goes down. Ask the device once it is back.
+				// A drop is not proof of failure: the hand-off often wins
+				// right before the transport goes away. Ask the device until
+				// the module shows up — a single early probe was the false
+				// miss that turned one shot into two.
 				if o.ADB.WaitShell(180 * time.Second) {
-					if out, err := o.ADB.ShellTrim("su -c id 2>/dev/null"); err == nil &&
-						strings.Contains(out, "uid=0") {
+					// A new boot_id means the phone did reboot, so there is
+					// no hand-off left to wait for: skip the 90s poll.
+					if id := o.ADB.BootID(); id != "" && fired != "" && id != fired {
+						lo.printf("[i] 设备已换 boot（真重启了），本次发射失手" + nl)
+					} else if confirmRoot(o.ADB, 90*time.Second, lo.printf) {
 						lo.printf(nl + "[+] 成功：设备回来后 su 已可用（KernelSU late-load）" + nl)
 						lo.printf("    用法: adb shell su -c id" + nl)
 						return &Result{TempRoot: true, KsuLoaded: true, SelinuxOff: true}, nil
@@ -494,4 +522,34 @@ func rooted(a *device.ADB) bool {
 		return true
 	}
 	return a.IsRoot()
+}
+
+// confirmRoot waits for a late-load that may have landed while adb was down.
+//
+// The hand-off is exactly when the phone stops answering: the root script is
+// forked off the winning thread and adb loses the transport for a few seconds.
+// The old code asked `su -c id` once, right after the transport came back, and
+// declared a miss when the module had not finished loading yet. That false miss
+// is what made the loop fire a second shot on the same boot, and the second
+// shot is what panics the kernel ~60s later.
+//
+// HasModule is the cheap probe (no su spawn); it is also the one that turns
+// true first, since KernelSU lists itself in /proc/modules as it loads.
+func confirmRoot(a *device.ADB, budget time.Duration, say func(string, ...any)) bool {
+	deadline := time.Now().Add(budget)
+	announced := false
+	for time.Now().Before(deadline) {
+		if a.HasModule("kernelsu") {
+			if a.IsRoot() {
+				return true
+			}
+			// Module is in, su not answering yet: keep waiting, the
+			// policy hand-off is still finishing.
+		} else if !announced {
+			announced = true
+			say("    [i] 掉线后确认中：模块还没进 /proc/modules，继续等（最多 %s）", budget)
+		}
+		time.Sleep(3 * time.Second)
+	}
+	return a.HasModule("kernelsu") || a.IsRoot()
 }

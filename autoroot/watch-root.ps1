@@ -37,6 +37,9 @@ param(
     [int]$HeartbeatEvery = 15,
     # 透传给 auto-reroot 的静置复查秒数（默认走它的 90s；自测里会调小）。
     [int]$SettleSec = -1,
+    # 透传发射窗口：上沿高于 50s 的那几次实测都把内核打死了（见 auto-reroot）。
+    [int]$MaxUptime = -1,
+    [int]$MinUptime = -1,
     [switch]$Once,
     [string]$Exe,
     [string]$Adb = "adb",
@@ -220,6 +223,8 @@ try {
         if ($WirelessAddr) { $argList += @("-WirelessAddr", $WirelessAddr) }
         if ($drive) { $argList += "-RebootIfLate" }
         if ($SettleSec -ge 0) { $argList += @("-SettleSec", "$SettleSec") }
+        if ($MaxUptime -gt 0) { $argList += @("-MaxUptime", "$MaxUptime") }
+        if ($MinUptime -gt 0) { $argList += @("-MinUptime", "$MinUptime") }
         if ($StateDir) { $argList += @("-StateDir", $StateDir) }
         & powershell.exe @argList | Out-Host
         $code = $LASTEXITCODE

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,5 +93,38 @@ func TestLoopWinsOnlyAfterWindow(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed < 20*time.Second {
 		t.Fatalf("uptime≈0 时应该先等到窗口下沿，实际只用了 %s（抢早了）", elapsed)
+	}
+}
+
+// TestLoopRefusesSecondShotOnSameBoot 守住「一个 boot 只发一次」这条硬规则。
+//
+// 假 adb 的 boot_id 固定不变，所以第一次干净失手之后，第二次轮次必须重启换
+// boot，绝不能在同一个 boot 上再打一次 —— 真机上第二次发射会在约 60 秒后把
+// 内核打死，连第一次拿到的 root 一起赔掉（见 docs/ROOT-DROP-60S.md）。
+func TestLoopRefusesSecondShotOnSameBoot(t *testing.T) {
+	mock := buildMockAdb(t)
+
+	state := filepath.Join(t.TempDir(), "mock-state.txt")
+	boot := strconv.FormatInt(time.Now().Unix()-30, 10)
+	if err := os.WriteFile(state, []byte("present=1 root=0 boot_unix="+boot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOCK_STATE", state)
+	t.Setenv("MOCK_FIRE_FAIL", "1")
+
+	a := &device.ADB{Bin: mock, Serial: "MOCKSERIAL"}
+	var buf strings.Builder
+	o := &Options{ADB: a, Loader: assets.New(""), Remote: stage.RemoteDir, Out: &buf}
+	lo := &LoopOptions{Base: o, Rounds: 2, PerBoot: 1, Window: 90, Timeout: 8, Out: &buf}
+
+	res, err := Loop(lo)
+	if err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if res != nil && res.KsuLoaded {
+		t.Fatalf("发射本该失手，实际报成功 %+v", res)
+	}
+	if !strings.Contains(buf.String(), "这个 boot 已经打过一次") {
+		t.Fatalf("第二个轮次应该拒绝重复发射，输出里没有保护语句：\n%s", buf.String())
 	}
 }

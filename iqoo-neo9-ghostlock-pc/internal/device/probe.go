@@ -23,6 +23,18 @@ func (a *ADB) Uptime() (float64, error) {
 	return strconv.ParseFloat(fields[0], 64)
 }
 
+// BootID identifies the running boot. The exploit may be fired at most once
+// per boot: a second shot lands its W2 write on a kernel that already carries
+// the late-loaded module and panics roughly a minute later. This value lets the
+// loop tell "the phone rebooted" from "still the boot we already shot at".
+func (a *ADB) BootID() string {
+	out, err := a.ShellTrim("cat /proc/sys/kernel/random/boot_id 2>/dev/null")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
 // Alive reports whether adb still gets a shell — it goes false while the phone
 // panics and reboots, which is the normal failure path of the exploit.
 func (a *ADB) Alive() bool {

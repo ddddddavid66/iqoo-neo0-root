@@ -29,6 +29,9 @@ tools/*
 !tools/port/
 !tools/mockadb/
 !tools/README.md
+# adb 协议参考实现：定位签名/分帧/OKAY 顺序三个坑全靠它，值得入库
+!tools/adb_probe.py
+!tools/adb_mitm.py
 
 # 编译产物
 **/bin/
@@ -70,3 +73,20 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# APK 工程：keystore 与构建产物不入库
+apk/build/
+apk/keystore.jks
+apk/lib/arm64-v8a/libksud.so
+
+# 调试截图（16 张、共 4.9MB），装机验证时截的，不入库
+apk/screen-*.png
+
+# 私钥绝不入库（这是公开仓库）。文件缺失时 AdbBridge 自动退回到设备自己生成
+# 一对密钥，并在主页提示把公钥登记到 /data/misc/adb/adb_keys。
+apk/assets/adbkey.der
+
+# APK 工程的 payload 与内核模块必须入库：它们不是编译产物，是运行必需的输入
+!apk/lib/arm64-v8a/libghostlock.so
+!apk/assets/vrpatch.ko
+!apk/assets/profile.bin

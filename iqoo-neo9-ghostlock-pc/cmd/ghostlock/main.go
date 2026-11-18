@@ -195,7 +195,7 @@ func cmdRun(args []string) error {
 	cleanAfter := fs.Bool("clean-after", false, "成功后清理设备上的 payload 与日志")
 	loopMode := fs.Bool("loop", false, "脱手循环：失败等重启，回到 uptime 窗口再打")
 	rounds := fs.Int("rounds", 10, "循环轮数上限")
-	perBoot := fs.Int("per-boot", 6, "每次开机窗口内连发次数")
+	perBoot := fs.Int("per-boot", 1, "每个 boot 发射次数（上限 1：二次发射会打死内核）")
 	window := fs.Int("window", 90, "uptime 窗口上沿（秒）")
 	rebootFirst := fs.Bool("reboot-first", false, "先主动重启抢窗口")
 	autoReboot := fs.Bool("auto-reboot", true, "干净失败（未 panic）时主动重启进下一轮")
@@ -356,7 +356,7 @@ func cmdAssets(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("payload: %s, %s, %s\n", assets.BinaryName, assets.VrPatchName, assets.ExtractName)
+		fmt.Printf("payload: %s, %s\n", assets.BinaryName, assets.VrPatchName)
 		fmt.Printf("profiles: %d\n", len(names))
 		return nil
 	}

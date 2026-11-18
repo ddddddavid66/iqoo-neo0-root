@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Minimal accessibility config. canRetrieveWindowContent is false on purpose:
+  this service exists purely as a boot-time trigger, and asking for window
+  content would demand far more trust from the user than the trigger needs.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/app_name"
+    android:notificationTimeout="100" />

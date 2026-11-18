@@ -25,8 +25,12 @@ param(
     [string]$Exe,
     [string]$Adb = "adb",
     [int]$Window = 90,
+    # 窗口上沿：实测 uptime 34s 发射的那次稳活 500s+；66s / 77s 发射的两次
+    # 一次把内核打死、一次发射途中整段日志变成 NUL。上沿收到 50s。
+    [int]$MaxUptime = 50,
     [int]$MaxRounds = 4,
-    [int]$PerBoot = 2,
+    # 每个 boot 只发一次：第二次发射会把已经在内存里的 KernelSU 连内核一起打死。
+    [int]$PerBoot = 1,
     [switch]$RebootIfLate,
     [switch]$DryRun,
     [int]$MaxConsecutiveFailures = 5,
@@ -245,7 +249,7 @@ try {
     $lock = New-Item -ItemType File -Path $lockFile -Force -ErrorAction Stop
     $PID | Set-Content -LiteralPath $lockFile -Encoding ASCII
 
-    Write-Log "=== 启动：exe=$Exe window=$Window rounds=$MaxRounds perBoot=$PerBoot dryRun=$DryRun"
+    Write-Log "=== 启动：exe=$Exe window=[$MinUptime,$MaxUptime] rounds=$MaxRounds perBoot=$PerBoot dryRun=$DryRun"
     $state = Read-State
     if ($state.pausedUntil) {
         $until = [datetime]::Parse($state.pausedUntil)
@@ -276,8 +280,8 @@ try {
     }
 
     if ($DryRun) {
-        Write-Log "DRY-RUN：将轮询 uptime 到 [5,$($Window - 5)] 区间后执行："
-        Write-Log "  $Exe run --loop --rounds $MaxRounds --per-boot $PerBoot"
+        Write-Log "DRY-RUN：将轮询 uptime 到 [$MinUptime,$MaxUptime] 区间后执行："
+        Write-Log "  $Exe run --loop --rounds $MaxRounds --per-boot $PerBoot --window $MaxUptime"
         exit 0
     }
 
@@ -291,25 +295,25 @@ try {
             if (-not (Wait-Device 180)) { Write-Event @{ event = "device-missing"; stage = "window" }; exit 2 }
             continue
         }
-        if ($up -ge $MinUptime -and $up -le ($Window - 5)) { break }
+        if ($up -ge $MinUptime -and $up -le $MaxUptime) { break }
         if ($up -lt $MinUptime) {
             Write-Log ("uptime={0:N0}s 未到下沿 {1}s，再等" -f $up, $MinUptime)
         }
-        if ($up -gt ($Window - 5)) {
+        if ($up -gt $MaxUptime) {
             if ($RebootIfLate) {
-                Write-Log ("已过窗口（uptime={0:N0}s），主动重启抢下一次" -f $up)
+                Write-Log ("已过窗口（uptime={0:N0}s > {1}s），主动重启抢下一次" -f $up, $MaxUptime)
                 Invoke-Adb @("reboot") 20 | Out-Null
                 Start-Sleep -Seconds 5
                 Wait-Device 180 | Out-Null
                 continue
             }
-            Write-Log ("已过窗口（uptime={0:N0}s），等下一次开机" -f $up)
+            Write-Log ("已过窗口（uptime={0:N0}s > {1}s），等下一次开机" -f $up, $MaxUptime)
             Write-Event @{ event = "window-missed"; uptime = $up }
             exit 3
         }
         Start-Sleep -Seconds 2
     }
-    if ($null -eq $up -or $up -gt ($Window - 5)) {
+    if ($null -eq $up -or $up -gt $MaxUptime) {
         Write-Log "15 分钟内没等到窗口"
         Write-Event @{ event = "window-timeout" }
         exit 3
@@ -330,7 +334,8 @@ try {
         Write-Event @{ event = "probe-failed"; uptime = $up; failures = $state.failures }
         exit 5
     }
-    $out = & $Exe run --loop --rounds $MaxRounds --per-boot $PerBoot @serialArg 2>&1 | Out-String
+    # --window 必须显式给：不给的话 ghostlock 内部默认 90s，会在窗口外也照样发射。
+    $out = & $Exe run --loop --rounds $MaxRounds --per-boot $PerBoot --window $MaxUptime @serialArg 2>&1 | Out-String
     $out | Set-Content -LiteralPath $runLog -Encoding UTF8
     Write-Log ("ghostlock 输出已写入 {0}" -f $runLog)
 

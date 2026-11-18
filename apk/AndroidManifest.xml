@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.ghostlock.boot"
+    android:versionCode="3"
+    android:versionName="1.2">
+
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!--
+      Needed to open a TCP socket to the phone's own adbd on 127.0.0.1:5555.
+      No traffic ever leaves the device: the bridge runs the exploit inside
+      adbd's shell domain because an app process (Seccomp=2, forbidden from
+      reading /sys/fs/selinux/enforce) cannot land this exploit at all.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      directBootAware is the whole point of this manifest.
+
+      LOCKED_BOOT_COMPLETED fires before the user unlocks, around uptime 15-25s.
+      The plain BOOT_COMPLETED is only delivered once the framework is fully up
+      — measured on this phone at uptime 85.9s, which is already past the 23-48s
+      window the exploit needs, so that variant can never work here.
+
+      Working in Direct Boot means every piece of state has to live in
+      device-protected storage (/data/user_de/0/...), which Launcher enforces.
+    -->
+    <application
+        android:label="@string/app_name"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:allowBackup="false"
+        android:directBootAware="true"
+        android:extractNativeLibs="true"
+        android:usesCleartextTraffic="false">
+
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".RootService"
+            android:exported="false"
+            android:directBootAware="true" />
+
+        <!--
+          Persisted JobScheduler service — the trigger that actually works here.
+          The job record lives inside JobSchedulerService, which reloads it on
+          every boot and dispatches the work itself. Nothing has to reach the app
+          through a broadcast, so OriginOS autostart management never sees it.
+        -->
+        <service
+            android:name=".BootJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="true"
+            android:directBootAware="true" />
+
+        <!--
+          Accessibility service used purely as a boot-time trigger: AMS binds it
+          when the framework comes up, which is a different code path from the
+          boot broadcast and therefore unaffected by the vendor autostart list.
+          The user has to enable it once in 设置 → 无障碍.
+        -->
+        <service
+            android:name=".RootAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service" />
+        </service>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -185,8 +185,12 @@ func shell(cmd string, s state, reachable bool) {
 	switch {
 	// fire() 通过 `setsid sh glrun.sh` 起载荷：模拟「载荷跑起来就成功」
 	case strings.Contains(cmd, "glrun.sh") || strings.Contains(cmd, "setsid"):
-		s.root = true
-		writeState(s)
+		// MOCK_FIRE_FAIL=1 让发射「干净失手」：不置 root，也不出成功标记。
+		// 用来验证「同一个 boot 绝不发射第二次」这条保护。
+		if os.Getenv("MOCK_FIRE_FAIL") == "" {
+			s.root = true
+			writeState(s)
+		}
 		fmt.Println("go")
 	// 管理器的探测要能立刻命中，否则 findManager 会对十几个包名各重试 5 次，
 	// 每次 500ms —— 光探测就 20 秒，把测试拖成天。

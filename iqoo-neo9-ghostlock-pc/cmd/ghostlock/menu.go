@@ -160,7 +160,7 @@ func menuRoot(a *device.ADB, online bool) error {
 	_, err := run.Loop(&run.LoopOptions{
 		Base:        o,
 		Rounds:      rounds,
-		PerBoot:     6,
+		PerBoot:     1,
 		Window:      window,
 		Timeout:     180,
 		CycleWait:   600,

@@ -45,13 +45,18 @@
 .\install-autostart.ps1 -Remove
 ```
 
-常用参数：`-Window 90`（窗口上沿）、`-MaxRounds 4`（每次开机最多几轮，每轮由 ghostlock
-自己等下一次 panic 重启）、`-PerBoot 2`、`-SettleSec 90`（成功后静置复查秒数）、
+常用参数：`-MinUptime 25` / `-MaxUptime 50`（发射窗口，**上沿不要放宽**）、
+`-MaxRounds 4`（每次开机最多几轮，每轮由 ghostlock 自己等下一次 panic 重启）、
+`-PerBoot 1`（每个 boot 只发一次，第二次会把内核打死）、`-SettleSec 90`（成功后静置复查秒数）、
 `-MaxConsecutiveFailures 5`、`-CooldownHours 24`、`-Exe <path>`。
 
 `watch-root.ps1` 另有：`-PollSec 20`（判活间隔）、`-FailBackoffSec 300` /
 `-MaxBackoffSec 3600`（失败退避）、`-HeartbeatEvery 15`（每 15 次判活打一条心跳）、
 `-MaxHours 0`（0 = 不限时）、`-NoReboot`。
+
+> 改这些 `.ps1` 时必须保留 **UTF-8 BOM**。PowerShell 5.1 会把无 BOM 的 UTF-8 按
+> OEM 代码页（936）解码，中文注释变乱码后引号配对失败，整个脚本直接语法错误。
+> 用编辑器改完确认头三字节是 `EF BB BF`。
 
 ## 自测（不需要手机）
 
