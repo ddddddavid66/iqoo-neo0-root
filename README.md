@@ -40,26 +40,112 @@ Bootloader 锁定、AVB green、boot 分区写不了，所以 root 只存在于�
 
 ### 2.1 手机自足（日常就用这个）
 
+装好之后，**开机等一分钟，什么都不用做**。下面是首次部署的完整流程。
+
+#### 首次部署：拿到 APK 之后
+
+**前提：装这个 APK 需要一次 root。** vivo 的 ICP 备案弹窗会拦掉普通
+`adb install`（报 `INSTALL_FAILED_ABORTED: User rejected permissions`），
+只有 `su -c pm install` 能过。所以全新机器上第一步总是先用 PC 拿一次 root。
+
+**1. 连上电脑，拿第一次 root**
+
+```powershell
+cd autoroot
+.\auto-reroot.ps1 -RebootIfLate
+```
+
+等 2–3 分钟，出现 `成功：su 已可用` 就行。这一步会重启手机，在开机窗口里发射一次。
+
+**2. 装 APK**
+
+```bash
+adb push apk/build/ghostlock-boot.apk /data/local/tmp/gl.apk
+adb shell 'su -c "pm install -r -d /data/local/tmp/gl.apk"'
+```
+
+看到 `Success` 即可。直接用 `adb install` 会卡在「继续安装」弹窗上等人点。
+
+**3. 开无障碍服务（关键，不能省）**
+
+手机上走：`设置 → 无障碍 → 已下载的服务 → GhostLock Boot → 打开`
+（OriginOS 可能是 `设置 → 快捷与辅助 → 无障碍`）
+
+用命令也行，需要 root：
+
+```bash
+adb shell 'su -c "settings put secure enabled_accessibility_services com.ghostlock.boot/com.ghostlock.boot.RootAccessibilityService"'
+adb shell 'su -c "settings put secure accessibility_enabled 1"'
+```
+
+这是**唯一能在 uptime 22s 触发的通道**。`BOOT_COMPLETED` 要到 85s 才来，
+JobScheduler 会被 vivo 清掉，两者都赶不上 30–48s 的窗口。
+
+**4. 放行后台（OriginOS 必须做）**
+
+- `i管家 → 应用管理 → 自启动管理 → GhostLock Boot → 允许`
+- `设置 → 应用 → 应用管理 → GhostLock Boot → 电池 → 允许后台高耗电`
+
+漏了这一步，App 进程可能在窗口到来前就被清掉。
+
+**5. 打开 App 验一次**
+
+点开 GhostLock Boot，主页会自动跑一次通道探测。看到这行就说明 App 能正常连上本机 adbd：
+
+```
+bridge OK, shell domain reachable, selinux=Enforcing
+```
+
+顺手点一下「复制 adb 公钥」，确认密钥已经生成。
+
+**6. 重启验证**
+
+重启手机 → 放着一分钟 → 打开 KernelSU 管理器，能进去就成了。
+
+#### 日常使用
+
 **开机，等一分钟，什么都不用做。**
 
-```
-23s   无障碍服务连上，App 开始等窗口
-30s   TCP 127.0.0.1:5555 → adbd 认证 → shell 域跑 exploit
-60-70s  su 可用
-```
+| 时刻（开机后） | 发生什么 |
+|---|---|
+| 22–26s | 无障碍服务连上，App 开始等窗口 |
+| 30s | 连 `127.0.0.1:5555` → adbd 认证 → shell 域跑 exploit |
+| 30–40s | exploit 执行（3–10 秒） |
+| 60–70s | `su` 可用，root 就绪 |
 
-判断成没成：`su -c id` 返回 `uid=0(root)`，或者直接打开 KernelSU 管理器。
+暗屏、锁屏都不影响。不用点开 App，不用停在某个界面，也不用插线。
 
-暗屏、锁屏都不影响（实测过）。**失败了就再重启一次** —— 手机自己没 root 时连
-`reboot` 权限都没有，不会自动重试，这一次 boot 就结束了。
+#### 判断成没成
 
-三条别破坏的前提：
+- 打开 **KernelSU 管理器**，能正常进就是有了
+- 或者在终端里 `su -c id`，看到 `uid=0(root)`
+
+#### 失败怎么办
+
+单次成功率约 **75%**（4 次冷启动实测 3 次成功）。没成的表现就是 `su` 不可用。
+
+**直接再重启一次。** 手机自己没 root 时连 `reboot` 权限都没有，不会自动重试，
+这一次 boot 到此为止。
+
+连续两次不中约 25%，三次都空约 6%。真碰上了，就该怀疑内核被 OTA 换了导致
+profile 过期 —— 那种情况要靠 §5 重新派生，多重启没用。
+
+#### 三条别破坏的前提
 
 1. 别卸载 `com.ghostlock.boot`
 2. 别关它的**无障碍服务**（唯一能在 22s 内触发的通道）
-3. 别清 `/data/local/tmp/ghostlock/`（payload、profile、启动脚本在这里，跨重启保留）
+3. 别清 `/data/local/tmp/ghostlock/`（payload、profile、启动脚本都在这里，跨重启保留）
 
-### 2.2 PC 兜底（首次部署、应急、换机器）
+#### 不想要了怎么卸
+
+```bash
+adb shell 'su -c "pm uninstall com.ghostlock.boot"'
+adb shell 'su -c "rm -rf /data/local/tmp/ghostlock"'
+```
+
+卸完手机回到「每次重启就没 root」的状态，需要时再手动打。
+
+### 2.2 PC 侧工具（应急与换机器）
 
 ```powershell
 cd autoroot
