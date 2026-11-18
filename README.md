@@ -68,9 +68,9 @@ cd autoroot
 .\go.ps1 -CheckOnly       # 只体检，不发射
 
 .\auto-reroot.ps1 -RebootIfLate    # 一次性：设备已开机很久，先重启抢窗口
-.\install-autostart.ps1            # 注册 Windows 登录自启
-.\install-autostart.ps1 -Remove    # 卸载
 ```
+
+**这里不注册任何开机自启。**要跑就手动开。
 
 关键参数：`-Window`（窗口上沿，默认 90）、`-MinUptime`（下沿，默认 25）、
 `-MaxRounds`、`-PerBoot`（每 boot 发射次数，默认 1）、`-SettleSec`（成功后静置复查，默认 90）。
@@ -159,29 +159,20 @@ APK 内置的 `assets/adbkey.der` 直接可用。换机器时用主页「复制 
 ├── iqoo-neo9-ghostlock-pc/      # GhostLock 移植（Go）
 │   ├── cmd/ghostlock/           #   CLI
 │   └── internal/                #   assets/profiles · device · profile · run · stage
-├── autoroot/                    # PC 侧看门狗（PowerShell）
+├── autoroot/                    # PC 侧发射器（手动，无常驻自启）
 │   ├── go.ps1                   #   上机入口：找设备 → 体检 → 交棒常驻
 │   ├── auto-reroot.ps1          #   一次性：等窗口 → 发射 → 事实判定 → 静置复查
-│   ├── watch-root.ps1           #   常驻：判活 → 掉则补打 → 指数退避
-│   ├── selftest.ps1 / soak.ps1  #   无真机自测（七场景 / 反复掉线）
-│   └── install-autostart.ps1    #   Windows 登录自启
+│   └── watch-root.ps1           #   常驻：判活 → 掉则补打 → 指数退避
 ├── tools/
 │   ├── port/                    # OTA → 内核 → profile 工具链
-│   ├── mockadb/                 # 假 adb / 假载荷（自测用）
 │   ├── adb_probe.py             # adb 协议参考实现（定位桥接 bug 全靠它）
 │   └── adb_mitm.py              # adb 抓包代理（逐字节对比真实客户端）
 ├── artifacts/5.15.137/          # kernel.bin + kernel.btf + 推导记录
 └── docs/
     ├── PLAN-B-SHELL-BRIDGE.md   # ★ adbd 桥接设计 + 10 个坑 + 验收数据
-    ├── AUTOROOT-DESIGN.md       # 自动 root 三层设计 + 失败模式
-    ├── RUNBOOK-REAL-DEVICE.md   # 上机手册（判据 / 检查 / 故障处置）
     ├── ROOT-DROP-60S.md         # 「root 拿到 60 秒就没了」的定位与修复
-    ├── DIAGNOSIS-AND-FIX-2026-11-01.md  # 归因、13 条代码 bug、P0–P3 计划
-    ├── FIX-RUN-2026-11-01.md    # 修复实弹记录
-    ├── PORT-NOTES.md            # 字段逐个溯源与实测对照
-    ├── PLAN-BOOT-ROOT.md        # 开机持久化的三种可能（含为什么永久 root 不可达）
-    ├── STATUS-5.15.137.md
-    └── PERSISTENCE-STATUS.md
+    ├── RUNBOOK-REAL-DEVICE.md   # 上机手册（判据 / 检查 / 故障处置）
+    └── PORT-NOTES.md            # 字段逐个溯源与实测对照
 ```
 
 `iqoo-neo9-ghostlock-pc/` 是快照目录：上游 `.git` 在 `_src/ghostlock-upstream-dotgit`，
@@ -266,8 +257,6 @@ profile 里写 `__tracepoint_sys_exit + 0x0`，payload 自己加 `.funcs` 的 `+
 ## 7. 代码修复清单
 
 ### 7.1 移植期修掉的 13 条（PC 侧）
-
-带位置的完整版在 [docs/DIAGNOSIS-AND-FIX-2026-11-01.md](docs/DIAGNOSIS-AND-FIX-2026-11-01.md)：
 
 | # | 位置 | 问题 |
 |---|---|---|

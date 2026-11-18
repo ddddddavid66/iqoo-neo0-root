@@ -27,8 +27,6 @@ _src/
 # 与本项目无关的宿主机工具（zig/go 工具链、DSH 会话脚本）
 tools/*
 !tools/port/
-!tools/mockadb/
-!tools/README.md
 # adb 协议参考实现：定位签名/分帧/OKAY 顺序三个坑全靠它，值得入库
 !tools/adb_probe.py
 !tools/adb_mitm.py

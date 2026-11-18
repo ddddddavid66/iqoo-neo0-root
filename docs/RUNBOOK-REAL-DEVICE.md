@@ -14,26 +14,17 @@
 2. 静置 90 秒后仍然 `su -c id` 可用（`auto-reroot.ps1 -SettleSec 90` 会自检，事件记为 `root-ok`）
 3. `adb shell grep -c kernelsu /proc/modules` → `1`
 
-## 0.5 上机前先跑离线自测（不需要手机，约 1 分钟）
-
-守护逻辑先在假 adb 上验一遍，避免明天把时间浪费在状态机上：
+## 0.5 上机前先体检（不需要手机，约 10 秒）
 
 ```powershell
-cd tools\mockadb
-go build -o mockadb.exe .
-go build -o mockghostlock.exe .
-cd ..\..
-powershell -File autoroot\selftest.ps1
+cd autoroot
+.\go.ps1 -CheckOnly     # 找设备 → doctor 体检，不发射
 ```
 
-七个场景：`A-hit`（窗口内命中）、`B-reboot-late`（过窗口→主动重启→命中，且断言发射
-uptime ≥ 25s）、`C-absent`（无设备时不发射）、`D-supervise`（root 在线时不动 → 掉线 →
-自动补回）、`E-panic-after-root`（命中后内核崩、设备重启：root 归零且 uptime 归 0 →
-必须等到窗口下沿再补回来）、`F-go-checkonly`（明天真正要敲的 `go.ps1 -CheckOnly`
-走一遍，断言 doctor 打出 profile 段）。六绿再上真机。
+体检要看到：设备识别为 V2338A、kernel `5.15.137-...`、profile 命中、
+KSU 管理器为 `com.sukisu.ultra`。任一项不对就先修这一项。
 
-`D` 和 `E` 是「自动 root」真正要证明的部分：监督器能自己发现 root 没了，并且能在
-内核崩溃重启这种最恶劣的情况下把 root 补回来。`F` 保证「上机入口本身」也是通的，`G` 保证「加载了但用不了」这种假健康不会被当成正常。
+（早先的假 adb 自测 `autoroot/selftest.ps1` 与 `tools/mockadb` 已随项目精简移除。）
 
 ## 1. 前置检查（约 30 秒）
 ```powershell
@@ -51,9 +42,8 @@ cd iqoo-neo9-ghostlock-pc
 
 任一项不对就先修这一项再往下走。
 
-> 登录自启（`install-autostart.ps1`）写出的命令带 `-FallbackWireless 10.206.33.5:5555`：
-> 开机后不管你插线还是只挂 Wi-Fi，监督器都会找到设备；只有对方真的处于 `device`
-> 状态才切换，避免卡在一个 `offline` 的 transport 上。
+> 本项目**不注册任何开机自启**。手机自己能拿 root（见
+> [PLAN-B-SHELL-BRIDGE.md](PLAN-B-SHELL-BRIDGE.md)），PC 侧工具用手动方式起。
 
 ## 2. 启动自动 root
 
@@ -129,9 +119,6 @@ Get-Content autoroot\state\fire-*.log -Tail 40                   # 最近一次�
 # 停监督器
 Get-Process powershell | Where-Object { $_.CommandLine -like "*watch-root*" } | Stop-Process
 # 或直接关掉那个窗口；锁文件 autoroot/state/watch.lock 会自动清理
-
-# 卸载开机自启
-.\autoroot\install-autostart.ps1 -Remove
 ```
 
 清理设备侧痕迹（可选）。CLI **没有** `clean` 子命令，只有 `run --clean-after`（发射成功后自动清）；要立刻清就手工删：
