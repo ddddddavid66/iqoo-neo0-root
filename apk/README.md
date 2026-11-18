@@ -66,6 +66,13 @@ python build.py --fetch-ksud      # 第一次要把 libksud.so 从手机拉下�
 
 产物：`build/ghostlock-boot.apk`（约 6.5 MB，主要体积是 ksud）。
 
+> **换机器或重新 clone 时注意签名。** `keystore.jks` 与 `assets/adbkey.der` 都不入库。
+> `build.py` 发现 keystore 缺失会自己生成一把，但新签名与设备上已装的 APK 冲突，
+> `pm install` 会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。此时先
+> `pm uninstall com.ghostlock.boot` —— 代价是旧密钥随之失效，重装后要在有 root 的
+> 会话里把新公钥追加到 `/data/misc/adb/adb_keys`（App 主页「复制 adb 公钥」）。
+> 两个文件都留着就不用管这条。
+
 ## 安装与放行
 
 ```powershell
